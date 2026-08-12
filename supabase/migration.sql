@@ -1,0 +1,605 @@
+-- Personal Trainer App — initial schema + RLS
+-- Run this once in the Supabase SQL editor (or via `supabase db push`).
+
+-- ============================================================
+-- Tables
+-- ============================================================
+
+create table if not exists public.profiles (
+  id uuid primary key references auth.users (id) on delete cascade,
+  email text,
+  full_name text,
+  avatar_url text,
+  default_role text check (default_role in ('trainer', 'client')),
+  bio text,
+  specialties text[],
+  goals text,
+  -- Digits-only, no country code (e.g. "5551234567") — the join key for
+  -- matching a trainer's text invite to the client who signs up with it.
+  phone text,
+  -- Platform admin. Can never be set by the account holder themselves —
+  -- see protect_is_admin_trigger below — only by an existing admin.
+  is_admin boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.locations (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  address text,
+  timezone text not null default 'UTC',
+  -- Who originally created the location. Purely informational — it grants no
+  -- special permissions; every trainer at a location manages it equally.
+  owner_id uuid not null references public.profiles (id) on delete cascade,
+  -- Base locations (e.g. a shared studio every trainer/client belongs to by
+  -- default) can't be deleted and are auto-joined by every new signup.
+  is_base boolean not null default false,
+  invite_code text not null unique
+    default substr(md5(random()::text || clock_timestamp()::text), 1, 8),
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.location_members (
+  id uuid primary key default gen_random_uuid(),
+  location_id uuid not null references public.locations (id) on delete cascade,
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  role text not null check (role in ('trainer', 'client')),
+  status text not null default 'active' check (status in ('active', 'pending')),
+  joined_at timestamptz not null default now(),
+  unique (location_id, user_id, role)
+);
+
+create table if not exists public.availability (
+  id uuid primary key default gen_random_uuid(),
+  trainer_id uuid not null references public.profiles (id) on delete cascade,
+  location_id uuid not null references public.locations (id) on delete cascade,
+  date date not null,
+  start_time time not null,
+  end_time time not null,
+  created_at timestamptz not null default now(),
+  check (end_time > start_time)
+);
+
+-- recurring_blocks: a standing weekly commitment (e.g. a class the trainer
+-- runs at the location that's booked through the location's own system, not
+-- this app) that blocks personal-training bookings during that time. Visible
+-- only to the trainer who owns it — clients never see the label, only that
+-- the time isn't offered.
+create table if not exists public.recurring_blocks (
+  id uuid primary key default gen_random_uuid(),
+  trainer_id uuid not null references public.profiles (id) on delete cascade,
+  location_id uuid not null references public.locations (id) on delete cascade,
+  day_of_week smallint not null check (day_of_week between 0 and 6),
+  start_time time not null,
+  end_time time not null,
+  label text,
+  starts_on date not null default current_date,
+  ends_on date,
+  created_at timestamptz not null default now(),
+  check (end_time > start_time),
+  check (ends_on is null or ends_on >= starts_on)
+);
+
+-- admin_trainer_invites: an activation code an admin generates and texts to
+-- someone so they can become a trainer. Trainer signup is gated on entering
+-- a valid, unredeemed code — see redeem_trainer_activation_code below.
+create table if not exists public.admin_trainer_invites (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique
+    default substr(md5(random()::text || clock_timestamp()::text), 1, 8),
+  phone text,
+  status text not null default 'pending' check (status in ('pending', 'accepted')),
+  accepted_by uuid references public.profiles (id) on delete set null,
+  accepted_at timestamptz,
+  created_by uuid not null references public.profiles (id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.bookings (
+  id uuid primary key default gen_random_uuid(),
+  location_id uuid not null references public.locations (id) on delete cascade,
+  trainer_id uuid not null references public.profiles (id) on delete cascade,
+  client_id uuid not null references public.profiles (id) on delete cascade,
+  start_time timestamptz not null,
+  end_time timestamptz not null,
+  status text not null default 'confirmed'
+    check (status in ('confirmed', 'cancelled', 'completed')),
+  notes text,
+  created_at timestamptz not null default now(),
+  check (end_time > start_time)
+);
+
+-- client_rosters: who's actually on a trainer's roster at a location —
+-- populated by accepting a text invite, or by making a first booking.
+-- This (not location_members) is the source of truth for "my clients".
+create table if not exists public.client_rosters (
+  trainer_id uuid not null references public.profiles (id) on delete cascade,
+  client_id uuid not null references public.profiles (id) on delete cascade,
+  location_id uuid not null references public.locations (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (trainer_id, client_id, location_id)
+);
+
+-- location_invites: a trainer records someone's phone number and texts them
+-- themselves — as a client to train, or as a fellow trainer to join the
+-- location. When that phone number later signs up with a matching role,
+-- they're auto-matched. This is the only way to join a non-base location.
+create table if not exists public.location_invites (
+  id uuid primary key default gen_random_uuid(),
+  trainer_id uuid not null references public.profiles (id) on delete cascade,
+  location_id uuid not null references public.locations (id) on delete cascade,
+  phone text not null,
+  role text not null default 'client' check (role in ('trainer', 'client')),
+  status text not null default 'pending' check (status in ('pending', 'accepted')),
+  accepted_by uuid references public.profiles (id) on delete set null,
+  accepted_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.conversations (
+  id uuid primary key default gen_random_uuid(),
+  location_id uuid references public.locations (id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.conversation_participants (
+  conversation_id uuid not null references public.conversations (id) on delete cascade,
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  primary key (conversation_id, user_id)
+);
+
+create table if not exists public.messages (
+  id uuid primary key default gen_random_uuid(),
+  conversation_id uuid not null references public.conversations (id) on delete cascade,
+  sender_id uuid not null references public.profiles (id) on delete cascade,
+  body text not null check (char_length(body) > 0),
+  created_at timestamptz not null default now(),
+  read_at timestamptz
+);
+
+create index if not exists idx_location_members_user on public.location_members (user_id);
+create index if not exists idx_location_members_location on public.location_members (location_id);
+create index if not exists idx_availability_trainer_location on public.availability (trainer_id, location_id, date);
+create index if not exists idx_recurring_blocks_trainer_location on public.recurring_blocks (trainer_id, location_id, day_of_week);
+create index if not exists idx_bookings_trainer on public.bookings (trainer_id);
+create index if not exists idx_bookings_client on public.bookings (client_id);
+create index if not exists idx_bookings_location on public.bookings (location_id);
+create index if not exists idx_messages_conversation on public.messages (conversation_id, created_at);
+create index if not exists idx_conversation_participants_user on public.conversation_participants (user_id);
+
+-- ============================================================
+-- New-user bootstrap: create a profile row right after Google sign-in
+-- ============================================================
+
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, email, full_name, avatar_url)
+  values (
+    new.id,
+    new.email,
+    coalesce(new.raw_user_meta_data ->> 'full_name', new.raw_user_meta_data ->> 'name'),
+    coalesce(new.raw_user_meta_data ->> 'avatar_url', new.raw_user_meta_data ->> 'picture')
+  )
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+-- ============================================================
+-- Base-location bootstrap: once someone finishes onboarding (default_role
+-- goes from null to set), auto-join them to every base location as that role
+-- ============================================================
+
+create or replace function public.join_base_locations()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.location_members (location_id, user_id, role, status)
+  select l.id, new.id, new.default_role, 'active'
+  from public.locations l
+  where l.is_base = true
+  on conflict (location_id, user_id, role) do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_profile_role_set on public.profiles;
+create trigger on_profile_role_set
+  after update of default_role on public.profiles
+  for each row
+  when (new.default_role is not null and old.default_role is distinct from new.default_role)
+  execute function public.join_base_locations();
+
+-- ============================================================
+-- RLS helper functions (SECURITY DEFINER so they can read
+-- location_members / conversation_participants without the
+-- calling policy recursing into itself)
+-- ============================================================
+
+create or replace function public.is_location_member(p_location_id uuid, p_user_id uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from public.location_members
+    where location_id = p_location_id and user_id = p_user_id and status = 'active'
+  );
+$$;
+
+-- Trainers at a location are peers — none of them "owns" it, so this checks
+-- active trainer membership rather than the (purely informational) owner_id.
+create or replace function public.is_location_trainer(p_location_id uuid, p_user_id uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from public.location_members
+    where location_id = p_location_id and user_id = p_user_id
+      and role = 'trainer' and status = 'active'
+  );
+$$;
+
+create or replace function public.is_conversation_participant(p_conversation_id uuid, p_user_id uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from public.conversation_participants
+    where conversation_id = p_conversation_id and user_id = p_user_id
+  );
+$$;
+
+grant execute on function public.is_location_member(uuid, uuid) to authenticated;
+grant execute on function public.is_location_trainer(uuid, uuid) to authenticated;
+grant execute on function public.is_conversation_participant(uuid, uuid) to authenticated;
+
+-- Lets someone who isn't a member yet resolve an invite code to a location
+-- (name only) so they can join it, without exposing the full locations table.
+create or replace function public.location_by_invite_code(p_code text)
+returns table (id uuid, name text)
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select id, name from public.locations where invite_code = p_code;
+$$;
+
+grant execute on function public.location_by_invite_code(text) to authenticated;
+
+-- Lets a client resolve which times are blocked by one of the trainer's
+-- recurring commitments on a given date — without exposing the label or any
+-- other column from recurring_blocks, which stays private to the trainer.
+create or replace function public.recurring_blocks_for_date(
+  p_trainer_id uuid,
+  p_location_id uuid,
+  p_date date
+)
+returns table (start_time time, end_time time)
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select rb.start_time, rb.end_time
+  from public.recurring_blocks rb
+  where rb.trainer_id = p_trainer_id
+    and rb.location_id = p_location_id
+    and rb.day_of_week = extract(dow from p_date)
+    and p_date >= rb.starts_on
+    and (rb.ends_on is null or p_date <= rb.ends_on);
+$$;
+
+grant execute on function public.recurring_blocks_for_date(uuid, uuid, date) to authenticated;
+
+create or replace function public.is_admin(p_user_id uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select coalesce((select is_admin from public.profiles where id = p_user_id), false);
+$$;
+
+grant execute on function public.is_admin(uuid) to authenticated;
+
+-- Blocks an account holder from granting themselves admin via a direct API
+-- update — only someone who is *already* an admin can change this column.
+create or replace function public.protect_is_admin()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.is_admin is distinct from old.is_admin then
+    if not public.is_admin(auth.uid()) then
+      new.is_admin := old.is_admin;
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists protect_is_admin_trigger on public.profiles;
+create trigger protect_is_admin_trigger
+before update on public.profiles
+for each row execute function public.protect_is_admin();
+
+-- Redeems a trainer activation code during onboarding. Callable by anyone
+-- (the person isn't a trainer yet, so can't be gated behind is_location_*
+-- style checks) — safe because it only flips one pending row to accepted
+-- and returns a bare boolean, nothing about the invite is exposed.
+create or replace function public.redeem_trainer_activation_code(p_code text, p_user_id uuid)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id uuid;
+begin
+  select id into v_id
+  from public.admin_trainer_invites
+  where code = p_code and status = 'pending'
+  limit 1;
+
+  if v_id is null then
+    return false;
+  end if;
+
+  update public.admin_trainer_invites
+  set status = 'accepted', accepted_by = p_user_id, accepted_at = now()
+  where id = v_id;
+
+  return true;
+end;
+$$;
+
+grant execute on function public.redeem_trainer_activation_code(text, uuid) to authenticated;
+
+-- When a phone number and role are set (at signup or later in Settings),
+-- match against any pending invite for that number+role and roster them up
+-- — as a client (also recorded on the inviting trainer's roster) or as a
+-- fellow trainer at the location.
+create or replace function public.match_location_invites()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.phone is not null and new.default_role is not null then
+    insert into public.location_members (location_id, user_id, role, status)
+    select li.location_id, new.id, li.role, 'active'
+    from public.location_invites li
+    where li.phone = new.phone and li.role = new.default_role and li.status = 'pending'
+    on conflict (location_id, user_id, role) do nothing;
+
+    insert into public.client_rosters (trainer_id, client_id, location_id)
+    select li.trainer_id, new.id, li.location_id
+    from public.location_invites li
+    where li.phone = new.phone and li.role = 'client' and new.default_role = 'client'
+      and li.status = 'pending'
+    on conflict (trainer_id, client_id, location_id) do nothing;
+
+    update public.location_invites
+    set status = 'accepted', accepted_by = new.id, accepted_at = now()
+    where phone = new.phone and role = new.default_role and status = 'pending';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_profile_phone_set on public.profiles;
+create trigger on_profile_phone_set
+  after insert or update of phone, default_role on public.profiles
+  for each row
+  execute function public.match_location_invites();
+
+-- ============================================================
+-- Row Level Security
+-- ============================================================
+
+alter table public.profiles enable row level security;
+alter table public.locations enable row level security;
+alter table public.location_members enable row level security;
+alter table public.availability enable row level security;
+alter table public.recurring_blocks enable row level security;
+alter table public.admin_trainer_invites enable row level security;
+alter table public.bookings enable row level security;
+alter table public.client_rosters enable row level security;
+alter table public.location_invites enable row level security;
+alter table public.conversations enable row level security;
+alter table public.conversation_participants enable row level security;
+alter table public.messages enable row level security;
+
+-- profiles: see your own profile, or anyone who shares a location with you
+create policy "profiles_select" on public.profiles
+  for select using (
+    id = auth.uid()
+    or exists (
+      select 1 from public.location_members lm1
+      join public.location_members lm2 on lm1.location_id = lm2.location_id
+      where lm1.user_id = auth.uid() and lm1.status = 'active'
+        and lm2.user_id = profiles.id and lm2.status = 'active'
+    )
+  );
+
+create policy "profiles_insert_own" on public.profiles
+  for insert with check (id = auth.uid());
+
+create policy "profiles_update_own" on public.profiles
+  for update using (id = auth.uid()) with check (id = auth.uid());
+
+-- locations: any active member can see it; any trainer there can edit it;
+-- any trainer there can delete it, except base locations (never deletable)
+-- owner_id is kept in the select check purely so a freshly-created location
+-- is visible to its creator before the location_members row exists yet
+-- (the insert-then-select-back in createLocation would otherwise return
+-- nothing and silently abort before the membership row gets inserted).
+-- It grants no other special powers — update/delete stay membership-gated.
+create policy "locations_select" on public.locations
+  for select using (owner_id = auth.uid() or public.is_location_member(id, auth.uid()));
+
+create policy "locations_insert" on public.locations
+  for insert with check (owner_id = auth.uid());
+
+create policy "locations_update" on public.locations
+  for update using (public.is_location_trainer(id, auth.uid()))
+  with check (public.is_location_trainer(id, auth.uid()));
+
+create policy "locations_delete" on public.locations
+  for delete using (public.is_location_trainer(id, auth.uid()) and not is_base);
+
+-- location_members: members can see the roster; users can add/remove
+-- themselves (join/leave); any trainer at the location can manage anyone
+create policy "location_members_select" on public.location_members
+  for select using (
+    user_id = auth.uid() or public.is_location_member(location_id, auth.uid())
+  );
+
+create policy "location_members_insert" on public.location_members
+  for insert with check (
+    user_id = auth.uid() or public.is_location_trainer(location_id, auth.uid())
+  );
+
+create policy "location_members_update" on public.location_members
+  for update using (public.is_location_trainer(location_id, auth.uid()))
+  with check (public.is_location_trainer(location_id, auth.uid()));
+
+create policy "location_members_delete" on public.location_members
+  for delete using (
+    user_id = auth.uid() or public.is_location_trainer(location_id, auth.uid())
+  );
+
+-- availability: visible to anyone at the location; only the owning trainer edits it
+create policy "availability_select" on public.availability
+  for select using (public.is_location_member(location_id, auth.uid()));
+
+create policy "availability_insert" on public.availability
+  for insert with check (
+    trainer_id = auth.uid() and public.is_location_member(location_id, auth.uid())
+  );
+
+create policy "availability_update" on public.availability
+  for update using (trainer_id = auth.uid()) with check (trainer_id = auth.uid());
+
+create policy "availability_delete" on public.availability
+  for delete using (trainer_id = auth.uid());
+
+-- recurring_blocks: fully private to the owning trainer. Clients resolve
+-- whether a time is blocked via the security-definer function below, which
+-- returns only start/end times — never the label or row itself.
+create policy "recurring_blocks_all" on public.recurring_blocks
+  for all using (trainer_id = auth.uid()) with check (trainer_id = auth.uid());
+
+-- admin_trainer_invites: fully private to admins. Redemption during
+-- onboarding goes through the security-definer function above, not a policy.
+create policy "admin_trainer_invites_all" on public.admin_trainer_invites
+  for all using (public.is_admin(auth.uid())) with check (public.is_admin(auth.uid()));
+
+-- bookings: the trainer, the client, and any other trainer at that location
+-- (for scheduling coordination) can see a booking; a client creates their own
+create policy "bookings_select" on public.bookings
+  for select using (
+    trainer_id = auth.uid()
+    or client_id = auth.uid()
+    or public.is_location_trainer(location_id, auth.uid())
+  );
+
+create policy "bookings_insert" on public.bookings
+  for insert with check (
+    (client_id = auth.uid() and public.is_location_member(location_id, auth.uid()))
+    or (trainer_id = auth.uid() and public.is_location_trainer(location_id, auth.uid()))
+  );
+
+create policy "bookings_update" on public.bookings
+  for update using (trainer_id = auth.uid() or client_id = auth.uid())
+  with check (trainer_id = auth.uid() or client_id = auth.uid());
+
+-- client_rosters: the trainer and the client on that row can see it; rows
+-- are only ever written by the client (accepting an invite, or booking)
+create policy "client_rosters_select" on public.client_rosters
+  for select using (trainer_id = auth.uid() or client_id = auth.uid());
+
+create policy "client_rosters_insert" on public.client_rosters
+  for insert with check (client_id = auth.uid());
+
+-- location_invites: only the trainer who sent it can list their invites;
+-- matching and acceptance go through the security-definer trigger function
+create policy "location_invites_select" on public.location_invites
+  for select using (trainer_id = auth.uid());
+
+create policy "location_invites_insert" on public.location_invites
+  for insert with check (
+    trainer_id = auth.uid() and public.is_location_trainer(location_id, auth.uid())
+  );
+
+-- conversations: only participants can see a conversation; any signed-in
+-- user can create the shell row (participants are added right after)
+create policy "conversations_select" on public.conversations
+  for select using (public.is_conversation_participant(id, auth.uid()));
+
+create policy "conversations_insert" on public.conversations
+  for insert with check (auth.uid() is not null);
+
+-- conversation_participants: participants can see the roster; a user can
+-- add themselves, or add another member of the same location
+create policy "conversation_participants_select" on public.conversation_participants
+  for select using (public.is_conversation_participant(conversation_id, auth.uid()));
+
+create policy "conversation_participants_insert" on public.conversation_participants
+  for insert with check (
+    user_id = auth.uid()
+    or exists (
+      select 1 from public.conversations c
+      where c.id = conversation_id
+        and c.location_id is not null
+        and public.is_location_member(c.location_id, auth.uid())
+        and public.is_location_member(c.location_id, user_id)
+    )
+  );
+
+-- messages: only participants can read/send; a participant can update a
+-- message (used to stamp read_at) but not impersonate another sender
+create policy "messages_select" on public.messages
+  for select using (public.is_conversation_participant(conversation_id, auth.uid()));
+
+create policy "messages_insert" on public.messages
+  for insert with check (
+    sender_id = auth.uid() and public.is_conversation_participant(conversation_id, auth.uid())
+  );
+
+create policy "messages_update" on public.messages
+  for update using (public.is_conversation_participant(conversation_id, auth.uid()))
+  with check (public.is_conversation_participant(conversation_id, auth.uid()));
+
+-- ============================================================
+-- Realtime: broadcast new/changed messages to subscribed clients
+-- ============================================================
+
+alter publication supabase_realtime add table public.messages;

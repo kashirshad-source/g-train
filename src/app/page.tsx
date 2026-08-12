@@ -1,69 +1,117 @@
 import Image from "next/image";
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import { GoogleSignInButton } from "@/components/auth/google-sign-in-button";
+import { EmailSignInForm } from "@/components/auth/email-sign-in-form";
+import { LOGO_PATH } from "@/lib/logo-version";
+import { CalendarClock, MapPin } from "lucide-react";
 
-export default function Home() {
+export default async function Home() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (user) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("default_role")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (!profile?.default_role) {
+      redirect("/onboarding");
+    }
+    redirect(profile.default_role === "trainer" ? "/trainer/dashboard" : "/client/dashboard");
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
+    <div className="flex min-h-screen flex-col">
+      <header className="flex items-center justify-between px-6 py-5 sm:px-10">
+        <div className="flex items-center gap-3">
+          <Image
+            src={LOGO_PATH}
+            alt="G-Train"
+            width={40}
+            height={40}
+            className="rounded-full"
+            priority
+          />
+          <span className="font-heading text-2xl font-semibold tracking-tight">G-Train</span>
+        </div>
+        <GoogleSignInButton size="sm" />
+      </header>
+
+      <main className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
         <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
+          src={LOGO_PATH}
+          alt="G-Train — Personal Training Booking Site"
+          width={112}
+          height={112}
+          className="mb-8 rounded-full shadow-[0_0_0_1px_rgba(15,23,42,0.06),0_20px_50px_-15px_rgba(15,23,42,0.3)]"
           priority
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+        <h1 className="font-heading max-w-2xl text-4xl font-semibold tracking-tight sm:text-5xl">
+          Run your training business from one place
+        </h1>
+        <p className="mt-5 max-w-xl text-lg text-muted-foreground">
+          Scheduling and bookings for personal trainers and their clients —
+          across every location you train at.
+        </p>
+        <div className="mt-8 flex flex-col items-center gap-4">
+          <GoogleSignInButton />
+          <div className="flex w-full max-w-xs items-center gap-3 text-xs text-muted-foreground">
+            <div className="h-px flex-1 bg-border" />
+            or
+            <div className="h-px flex-1 bg-border" />
+          </div>
+          <EmailSignInForm />
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        <div className="mt-20 grid w-full max-w-2xl gap-6 text-left sm:grid-cols-2">
+          <Feature
+            icon={<CalendarClock className="size-5" />}
+            title="Scheduling & booking"
+            description="Trainers publish availability, clients book sessions instantly, everyone sees it on their dashboard."
+          />
+          <Feature
+            icon={<MapPin className="size-5" />}
+            title="Multiple locations"
+            description="Manage several training locations and trainers under one account with role-based access."
+          />
         </div>
       </main>
+
+      <footer className="flex items-center justify-center gap-2 px-6 py-8 text-sm text-muted-foreground">
+        <Image
+          src={LOGO_PATH}
+          alt=""
+          width={20}
+          height={20}
+          className="rounded-full opacity-80"
+        />
+        G-Train
+      </footer>
+    </div>
+  );
+}
+
+function Feature({
+  icon,
+  title,
+  description,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="steel-panel flex flex-col gap-2 rounded-xl border border-border p-5">
+      <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        {icon}
+      </div>
+      <h3 className="font-medium">{title}</h3>
+      <p className="text-sm text-muted-foreground">{description}</p>
     </div>
   );
 }
