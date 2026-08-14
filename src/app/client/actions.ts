@@ -6,9 +6,32 @@ import { createClient } from "@/lib/supabase/server";
 export async function cancelBooking(id: string) {
   const supabase = await createClient();
   await supabase.from("bookings").update({ status: "cancelled" }).eq("id", id);
+  await supabase.rpc("notify_booking_cancelled", { p_booking_id: id });
   revalidatePath("/client/dashboard");
   revalidatePath("/trainer/dashboard");
   revalidatePath("/trainer/schedule");
+}
+
+export async function requestSlotOffer(offerId: string): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  const { error } = await supabase
+    .from("slot_offer_requests")
+    .insert({ slot_offer_id: offerId, client_id: user.id });
+
+  // 23505 = already requested this one — not a real error to the user.
+  if (error && error.code !== "23505") return { error: "Couldn't request that slot." };
+
+  if (!error) {
+    await supabase.rpc("notify_slot_offer_requested", { p_slot_offer_id: offerId });
+  }
+
+  revalidatePath("/client/dashboard");
+  return {};
 }
 
 export async function bookSession(formData: FormData) {

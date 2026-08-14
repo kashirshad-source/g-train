@@ -135,10 +135,7 @@ export function BookSessionButton({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Book a session</DialogTitle>
-          <DialogDescription>
-            Pick a location, a client, and a time. It doesn&apos;t have to fit your set hours —
-            you&apos;ll just be warned if it falls outside them.
-          </DialogDescription>
+          <DialogDescription>Doesn&apos;t have to fit your set hours.</DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
@@ -207,10 +204,7 @@ export function BookSessionButton({
           {date && !fitsAvailability && (
             <div className="flex items-start gap-2 rounded-md border border-cta/40 bg-cta/10 px-3 py-2 text-sm text-cta-foreground">
               <TriangleAlert className="mt-0.5 size-4 shrink-0 text-cta" />
-              <span>
-                This falls outside your set hours for this day at this location. You can still
-                book it.
-              </span>
+              <span>Outside your set hours — still bookable.</span>
             </div>
           )}
         </div>

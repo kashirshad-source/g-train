@@ -18,9 +18,7 @@ export default async function TrainerClientsPage() {
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="font-heading text-2xl font-semibold">Clients</h1>
-        <p className="text-muted-foreground">
-          Clients you've personally booked, across every location.
-        </p>
+        <p className="text-muted-foreground">Everyone you've booked.</p>
       </div>
 
       {locations.length === 0 && (

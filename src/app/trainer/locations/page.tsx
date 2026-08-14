@@ -24,18 +24,13 @@ export default async function TrainerLocationsPage() {
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="font-heading text-2xl font-semibold">Locations</h1>
-        <p className="text-muted-foreground">
-          Every trainer at a location manages it equally — invite trainers and clients by text,
-          and see only the clients you've personally booked.
-        </p>
+        <p className="text-muted-foreground">Where you train, and who's there.</p>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle>Create a location</CardTitle>
-          <CardDescription>
-            To add trainers or clients to it, invite them by text from the location below.
-          </CardDescription>
+          <CardDescription>Invite people by text once it&apos;s created.</CardDescription>
         </CardHeader>
         <CardContent>
           <CreateLocationForm />

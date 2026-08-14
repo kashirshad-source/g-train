@@ -11,6 +11,14 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Calendar, CalendarDayButton } from "@/components/ui/calendar";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -27,7 +35,10 @@ import {
   deleteAvailability,
   addRecurringBlock,
   deleteRecurringBlock,
-  updateBookingStatus,
+  markBookingComplete,
+  cancelBooking,
+  confirmSlotOffer,
+  closeSlotOffer,
 } from "./actions";
 import { X } from "lucide-react";
 import { toast } from "sonner";
@@ -68,6 +79,18 @@ interface ClientProfile {
   id: string;
   full_name: string | null;
   email: string | null;
+}
+interface SlotOfferRow {
+  id: string;
+  location_id: string;
+  start_time: string;
+  end_time: string;
+  status: string;
+}
+interface SlotOfferRequestRow {
+  id: string;
+  slot_offer_id: string;
+  client_id: string;
 }
 
 // A "full" training day runs 7am–9pm. Day-cell fills are sized to the
@@ -150,12 +173,16 @@ export function ScheduleManager({
   bookings,
   clients,
   recurringBlocks,
+  slotOffers,
+  slotOfferRequests,
 }: {
   locations: Location[];
   availability: AvailabilityRow[];
   bookings: BookingRow[];
   clients: ClientProfile[];
   recurringBlocks: RecurringBlockRow[];
+  slotOffers: SlotOfferRow[];
+  slotOfferRequests: SlotOfferRequestRow[];
 }) {
   const [formLocationId, setFormLocationId] = useState(locations[0]?.id ?? "");
   const [selectedDates, setSelectedDates] = useState<Date[] | undefined>(undefined);
@@ -165,6 +192,8 @@ export function ScheduleManager({
   const [blockDayOfWeek, setBlockDayOfWeek] = useState("2");
   const [blockStartTime, setBlockStartTime] = useState("18:00");
   const [blockEndTime, setBlockEndTime] = useState("19:00");
+  const [cancelTarget, setCancelTarget] = useState<BookingRow | null>(null);
+  const [offerSlotChecked, setOfferSlotChecked] = useState(false);
   const [isPending, startTransition] = useTransition();
   const clientById = useMemo(() => new Map(clients.map((c) => [c.id, c])), [clients]);
   const locationById = useMemo(() => new Map(locations.map((l) => [l.id, l])), [locations]);
@@ -172,6 +201,15 @@ export function ScheduleManager({
     () => buildLocationColorMap(locations.map((l) => l.id)),
     [locations]
   );
+  const requestsByOffer = useMemo(() => {
+    const map = new Map<string, SlotOfferRequestRow[]>();
+    for (const req of slotOfferRequests) {
+      const list = map.get(req.slot_offer_id) ?? [];
+      list.push(req);
+      map.set(req.slot_offer_id, list);
+    }
+    return map;
+  }, [slotOfferRequests]);
 
   const availabilityByDate = useMemo(() => {
     const map = new Map<string, AvailabilityRow[]>();
@@ -268,11 +306,42 @@ export function ScheduleManager({
     });
   }
 
-  function handleBookingStatus(id: string, status: "cancelled" | "completed") {
+  function handleMarkComplete(id: string) {
     startTransition(() => {
-      updateBookingStatus(id, status).then(() =>
-        toast.success(status === "cancelled" ? "Session cancelled" : "Session marked complete")
+      markBookingComplete(id).then(() => toast.success("Session marked complete"));
+    });
+  }
+
+  function handleConfirmCancel() {
+    if (!cancelTarget) return;
+    const target = cancelTarget;
+    const offerSlot = offerSlotChecked;
+    setCancelTarget(null);
+    setOfferSlotChecked(false);
+    startTransition(() => {
+      cancelBooking(target.id, offerSlot).then(() =>
+        toast.success(offerSlot ? "Session cancelled — slot offered to clients" : "Session cancelled")
       );
+    });
+  }
+
+  function handleConfirmOffer(offer: SlotOfferRow, clientId: string) {
+    startTransition(() => {
+      confirmSlotOffer(offer.id, clientId, offer.location_id, offer.start_time, offer.end_time).then(
+        (result) => {
+          if (result?.error) {
+            toast.error(result.error);
+            return;
+          }
+          toast.success("Booking confirmed");
+        }
+      );
+    });
+  }
+
+  function handleCloseOffer(id: string) {
+    startTransition(() => {
+      closeSlotOffer(id).then(() => toast.success("Offer closed"));
     });
   }
 
@@ -280,9 +349,7 @@ export function ScheduleManager({
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="font-heading text-2xl font-semibold">Schedule</h1>
-        <p className="text-muted-foreground">
-          Manage your availability across every location, all in one calendar.
-        </p>
+        <p className="text-muted-foreground">Your availability and bookings.</p>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -304,6 +371,7 @@ export function ScheduleManager({
         <TabsList>
           <TabsTrigger value="availability">Availability</TabsTrigger>
           <TabsTrigger value="bookings">Upcoming bookings</TabsTrigger>
+          <TabsTrigger value="offers">Open slots</TabsTrigger>
           <TabsTrigger value="blocks">Recurring commitments</TabsTrigger>
         </TabsList>
 
@@ -311,11 +379,7 @@ export function ScheduleManager({
           <Card>
             <CardHeader>
               <CardTitle>Availability</CardTitle>
-              <CardDescription>
-                Click a date to see or edit its hours, or select several to set the same hours for
-                all of them at once. Days with hours set are tinted in that location&apos;s color —
-                split into stripes when more than one location has hours that day.
-              </CardDescription>
+              <CardDescription>Tap a date to set your hours.</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-6 lg:flex-row lg:items-start">
               <div className="overflow-x-auto">
@@ -341,10 +405,7 @@ export function ScheduleManager({
 
               <div className="flex w-full flex-col gap-4 lg:max-w-xs lg:border-l lg:pl-6">
                 {selectedDateKeys.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    Select a date on the calendar to add or edit hours. Select multiple dates to
-                    set the same hours for all of them at once.
-                  </p>
+                  <p className="text-sm text-muted-foreground">Pick a date to set hours.</p>
                 ) : (
                   <>
                     <div className="flex items-center justify-between gap-2">
@@ -490,7 +551,7 @@ export function ScheduleManager({
                                 size="sm"
                                 variant="outline"
                                 disabled={isPending}
-                                onClick={() => handleBookingStatus(booking.id, "completed")}
+                                onClick={() => handleMarkComplete(booking.id)}
                               >
                                 Mark complete
                               </Button>
@@ -498,7 +559,7 @@ export function ScheduleManager({
                                 size="sm"
                                 variant="destructive"
                                 disabled={isPending}
-                                onClick={() => handleBookingStatus(booking.id, "cancelled")}
+                                onClick={() => setCancelTarget(booking)}
                               >
                                 Cancel
                               </Button>
@@ -514,15 +575,92 @@ export function ScheduleManager({
           </Card>
         </TabsContent>
 
+        <TabsContent value="offers">
+          <Card>
+            <CardHeader>
+              <CardTitle>Open slots</CardTitle>
+              <CardDescription>
+                Slots you&apos;ve offered to clients after a cancellation.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {slotOffers.length === 0 ? (
+                <p className="text-sm text-muted-foreground">None yet.</p>
+              ) : (
+                <ul className="flex flex-col divide-y">
+                  {slotOffers.map((offer) => {
+                    const location = locationById.get(offer.location_id);
+                    const requests = requestsByOffer.get(offer.id) ?? [];
+                    return (
+                      <li key={offer.id} className="flex flex-col gap-2 py-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <div className="font-medium">{location?.name ?? "Location"}</div>
+                            <div className="text-sm tabular-nums text-muted-foreground">
+                              {format(new Date(offer.start_time), "EEE MMM d, h:mm a")}
+                            </div>
+                          </div>
+                          <Badge
+                            variant={offer.status === "open" ? "secondary" : "outline"}
+                          >
+                            {offer.status}
+                          </Badge>
+                        </div>
+
+                        {offer.status === "open" && (
+                          <>
+                            {requests.length === 0 ? (
+                              <p className="text-xs text-muted-foreground">
+                                No requests yet.
+                              </p>
+                            ) : (
+                              <ul className="flex flex-col gap-1.5">
+                                {requests.map((req) => {
+                                  const client = clientById.get(req.client_id);
+                                  return (
+                                    <li
+                                      key={req.id}
+                                      className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-1.5 text-sm"
+                                    >
+                                      <span>{client?.full_name ?? client?.email ?? "Client"}</span>
+                                      <Button
+                                        size="sm"
+                                        variant="cta"
+                                        disabled={isPending}
+                                        onClick={() => handleConfirmOffer(offer, req.client_id)}
+                                      >
+                                        Confirm
+                                      </Button>
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="self-start"
+                              disabled={isPending}
+                              onClick={() => handleCloseOffer(offer.id)}
+                            >
+                              Close without filling
+                            </Button>
+                          </>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="blocks">
           <Card>
             <CardHeader>
               <CardTitle>Recurring commitments</CardTitle>
-              <CardDescription>
-                A standing weekly commitment — like a class booked through the location itself —
-                that blocks personal-training bookings during that time. Only you see this; clients
-                just see the time isn&apos;t offered.
-              </CardDescription>
+              <CardDescription>Weekly commitments that block bookings. Only you see them.</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-6">
               <form onSubmit={handleAddBlock} className="flex flex-col gap-3 rounded-md border border-border p-3 sm:flex-row sm:flex-wrap sm:items-end">
@@ -588,10 +726,7 @@ export function ScheduleManager({
               </form>
 
               {recurringBlocks.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No recurring commitments set. Add one above if you teach a regular class or have
-                  another standing commitment at a location.
-                </p>
+                <p className="text-sm text-muted-foreground">None yet.</p>
               ) : (
                 <ul className="flex flex-col divide-y">
                   {recurringBlocks.map((block) => (
@@ -624,6 +759,44 @@ export function ScheduleManager({
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={!!cancelTarget} onOpenChange={(open) => !open && setCancelTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cancel session?</DialogTitle>
+            {cancelTarget && (
+              <DialogDescription>
+                {clientById.get(cancelTarget.client_id)?.full_name ??
+                  clientById.get(cancelTarget.client_id)?.email ??
+                  "This client"}{" "}
+                · {format(new Date(cancelTarget.start_time), "EEE MMM d, h:mm a")}
+              </DialogDescription>
+            )}
+          </DialogHeader>
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={offerSlotChecked}
+              onChange={(e) => setOfferSlotChecked(e.target.checked)}
+              className="mt-0.5 size-4 rounded border-input"
+            />
+            Offer this slot to clients at this location
+          </label>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setCancelTarget(null)}>
+              Never mind
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={isPending}
+              onClick={handleConfirmCancel}
+            >
+              Cancel session
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

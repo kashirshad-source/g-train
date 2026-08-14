@@ -51,6 +51,7 @@ export interface Database {
         Row: {
           id: string;
           code: string;
+          name: string | null;
           phone: string | null;
           status: string;
           accepted_by: string | null;
@@ -61,6 +62,7 @@ export interface Database {
         Insert: {
           id?: string;
           code?: string;
+          name?: string | null;
           phone?: string | null;
           status?: string;
           accepted_by?: string | null;
@@ -71,6 +73,7 @@ export interface Database {
         Update: {
           id?: string;
           code?: string;
+          name?: string | null;
           phone?: string | null;
           status?: string;
           accepted_by?: string | null;
@@ -362,6 +365,96 @@ export interface Database {
         };
         Relationships: [];
       };
+      notifications: {
+        Row: {
+          id: string;
+          user_id: string;
+          actor_id: string;
+          type: string;
+          booking_id: string | null;
+          slot_offer_id: string | null;
+          read_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          actor_id: string;
+          type?: string;
+          booking_id?: string | null;
+          slot_offer_id?: string | null;
+          read_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          actor_id?: string;
+          type?: string;
+          booking_id?: string | null;
+          slot_offer_id?: string | null;
+          read_at?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      slot_offers: {
+        Row: {
+          id: string;
+          trainer_id: string;
+          location_id: string;
+          start_time: string;
+          end_time: string;
+          status: string;
+          filled_booking_id: string | null;
+          source_booking_id: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          trainer_id: string;
+          location_id: string;
+          start_time: string;
+          end_time: string;
+          status?: string;
+          filled_booking_id?: string | null;
+          source_booking_id?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          trainer_id?: string;
+          location_id?: string;
+          start_time?: string;
+          end_time?: string;
+          status?: string;
+          filled_booking_id?: string | null;
+          source_booking_id?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      slot_offer_requests: {
+        Row: {
+          id: string;
+          slot_offer_id: string;
+          client_id: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          slot_offer_id: string;
+          client_id: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          slot_offer_id?: string;
+          client_id?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -376,6 +469,22 @@ export interface Database {
       is_admin: {
         Args: { p_user_id: string };
         Returns: boolean;
+      };
+      notify_booking_cancelled: {
+        Args: { p_booking_id: string };
+        Returns: undefined;
+      };
+      notify_slot_offer_available: {
+        Args: { p_slot_offer_id: string };
+        Returns: undefined;
+      };
+      notify_slot_offer_requested: {
+        Args: { p_slot_offer_id: string };
+        Returns: undefined;
+      };
+      notify_slot_offer_result: {
+        Args: { p_slot_offer_id: string; p_winning_client_id: string };
+        Returns: undefined;
       };
       redeem_trainer_activation_code: {
         Args: { p_code: string; p_user_id: string };

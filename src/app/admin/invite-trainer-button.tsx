@@ -19,17 +19,22 @@ import { toast } from "sonner";
 
 export function InviteTrainerButton() {
   const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [sending, setSending] = useState(false);
   const [code, setCode] = useState<string | null>(null);
 
   async function handleGenerate() {
+    if (!name.trim()) {
+      toast.error("Enter their name");
+      return;
+    }
     if (!phone.trim()) {
       toast.error("Enter their phone number");
       return;
     }
     setSending(true);
-    const result = await generateTrainerInvite(phone);
+    const result = await generateTrainerInvite(name, phone);
     setSending(false);
     if (result.error || !result.code) {
       toast.error(result.error ?? "Couldn't create the invite.");
@@ -39,7 +44,7 @@ export function InviteTrainerButton() {
     setCode(result.code);
     const digits = phone.replace(/\D/g, "");
     const link = `${window.location.origin}/invite/t/${result.code}`;
-    const message = `You're invited to join G-Train as a trainer! Tap to join: ${link}`;
+    const message = `Hi ${name.trim().split(" ")[0]}, you're invited to join G-Train as a trainer! Tap to join: ${link}`;
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
     window.location.href = `sms:${digits}${isIOS ? "&" : "?"}body=${encodeURIComponent(message)}`;
   }
@@ -47,6 +52,7 @@ export function InviteTrainerButton() {
   function handleOpenChange(next: boolean) {
     setOpen(next);
     if (!next) {
+      setName("");
       setPhone("");
       setCode(null);
     }
@@ -63,11 +69,18 @@ export function InviteTrainerButton() {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Invite a trainer</DialogTitle>
-          <DialogDescription>
-            We&apos;ll open a text with a link — they just add their name and a password and
-            they&apos;re a trainer, no separate sign-up needed.
-          </DialogDescription>
+          <DialogDescription>Opens a text with a join link.</DialogDescription>
         </DialogHeader>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="admin-invite-name">Their name</Label>
+          <Input
+            id="admin-invite-name"
+            placeholder="Jamie Rivera"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+          />
+        </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="admin-invite-phone">Their phone number</Label>
           <Input
@@ -76,7 +89,6 @@ export function InviteTrainerButton() {
             placeholder="(555) 123-4567"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            autoFocus
           />
         </div>
         {code && (

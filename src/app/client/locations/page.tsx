@@ -19,10 +19,7 @@ export default async function ClientLocationsPage() {
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="font-heading text-2xl font-semibold">Locations</h1>
-        <p className="text-muted-foreground">
-          The training locations you belong to. A trainer adds you by texting an invite to your
-          phone number.
-        </p>
+        <p className="text-muted-foreground">Where you train.</p>
       </div>
 
       {rosters.length === 0 && (

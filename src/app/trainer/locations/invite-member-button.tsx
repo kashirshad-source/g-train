@@ -67,10 +67,7 @@ export function InviteMemberButton({
           <DialogTitle>
             Invite a {role} to {locationName}
           </DialogTitle>
-          <DialogDescription>
-            We&apos;ll open a text with a link — they just add their name and a password and
-            they&apos;re in, no separate sign-up needed.
-          </DialogDescription>
+          <DialogDescription>Opens a text with a join link.</DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor={`invite-phone-${role}`}>Their phone number</Label>

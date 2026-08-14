@@ -20,7 +20,7 @@ export default async function AdminPage() {
       admin.from("bookings").select("id", { count: "exact", head: true }),
       admin
         .from("admin_trainer_invites")
-        .select("id, code, phone, status, created_at, accepted_by")
+        .select("id, code, name, phone, status, created_at, accepted_by")
         .order("created_at", { ascending: false }),
     ]);
 
@@ -162,7 +162,12 @@ export default async function AdminPage() {
               {invites.map((inv) => (
                 <li key={inv.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                   <div>
-                    <div className="font-mono text-sm font-medium tabular-nums">{inv.code}</div>
+                    <div className="text-sm font-medium">
+                      {inv.name ?? "Unnamed"}{" "}
+                      <span className="font-mono font-normal tabular-nums text-muted-foreground">
+                        {inv.code}
+                      </span>
+                    </div>
                     <div className="text-xs text-muted-foreground">
                       {inv.phone} · {format(new Date(inv.created_at), "MMM d, yyyy")}
                       {inv.accepted_by && ` · redeemed by ${profileById.get(inv.accepted_by)?.full_name ?? profileById.get(inv.accepted_by)?.email ?? "someone"}`}

@@ -74,9 +74,7 @@ export function OnboardingFlow({ error, userId }: { error?: string; userId: stri
                 placeholder="(555) 123-4567"
                 required
               />
-              <p className="text-xs text-muted-foreground">
-                Matches you to a text invite from a trainer or client automatically.
-              </p>
+              <p className="text-xs text-muted-foreground">Matches your text invite.</p>
             </div>
             {role === "trainer" && (
               <div className="flex flex-col gap-1.5">
@@ -89,9 +87,7 @@ export function OnboardingFlow({ error, userId }: { error?: string; userId: stri
                   placeholder="e.g. a1b2c3d4"
                   required
                 />
-                <p className="text-xs text-muted-foreground">
-                  The code whoever invited you to G-Train sent you.
-                </p>
+                <p className="text-xs text-muted-foreground">Sent to you when invited.</p>
               </div>
             )}
             <Button

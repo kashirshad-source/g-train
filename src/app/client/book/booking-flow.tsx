@@ -30,12 +30,16 @@ interface TrainerProfile {
 export function BookingFlow({
   locations,
   trainersByLocation,
+  initialLocationId,
+  initialTrainerId,
 }: {
   locations: Location[];
   trainersByLocation: Record<string, TrainerProfile[]>;
+  initialLocationId?: string;
+  initialTrainerId?: string;
 }) {
-  const [locationId, setLocationId] = useState(locations[0]?.id ?? "");
-  const [trainerId, setTrainerId] = useState<string>("");
+  const [locationId, setLocationId] = useState(initialLocationId ?? locations[0]?.id ?? "");
+  const [trainerId, setTrainerId] = useState<string>(initialTrainerId ?? "");
   const [date, setDate] = useState<Date | undefined>(undefined);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [loadingSlots, startLoadTransition] = useTransition();
@@ -89,9 +93,7 @@ export function BookingFlow({
 
   if (locations.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">
-        Join a training location first before booking a session.
-      </p>
+      <p className="text-sm text-muted-foreground">Join a location to book a session.</p>
     );
   }
 

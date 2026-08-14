@@ -5,8 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AddToCalendar } from "@/components/add-to-calendar";
+import { DaySheet, type DaySheetAppointment } from "@/components/day-sheet";
+import { buildLocationColorMap, DEFAULT_LOCATION_COLOR } from "@/lib/location-colors";
 import { BookSessionButton } from "./book-session-button";
-import { format, startOfWeek, endOfWeek } from "date-fns";
+import { format, startOfWeek, endOfWeek, startOfDay, endOfDay, addDays } from "date-fns";
 
 export default async function TrainerDashboardPage() {
   const { supabase, user, profile } = await requireUserWithRole("trainer");
@@ -18,20 +20,47 @@ export default async function TrainerDashboardPage() {
   );
   const clientsByLocation = Object.fromEntries(clientsByLocationEntries);
 
-  const nowISO = new Date().toISOString();
-  const { data: upcomingBookings } = await supabase
+  const today = new Date();
+  const tomorrow = addDays(today, 1);
+
+  const { data: todayBookings } = await supabase
     .from("bookings")
     .select("*")
     .eq("trainer_id", user.id)
-    .eq("status", "confirmed")
-    .gte("start_time", nowISO)
-    .order("start_time", { ascending: true })
-    .limit(10);
+    .neq("status", "cancelled")
+    .gte("start_time", startOfDay(today).toISOString())
+    .lte("start_time", endOfDay(today).toISOString())
+    .order("start_time", { ascending: true });
 
-  const clientIds = [...new Set((upcomingBookings ?? []).map((b) => b.client_id))];
+  const { data: tomorrowBookings } = await supabase
+    .from("bookings")
+    .select("*")
+    .eq("trainer_id", user.id)
+    .neq("status", "cancelled")
+    .gte("start_time", startOfDay(tomorrow).toISOString())
+    .lte("start_time", endOfDay(tomorrow).toISOString())
+    .order("start_time", { ascending: true });
+
+  const clientIds = [
+    ...new Set([...(todayBookings ?? []), ...(tomorrowBookings ?? [])].map((b) => b.client_id)),
+  ];
   const clientProfiles = await getProfilesByIds(supabase, clientIds);
   const clientById = new Map(clientProfiles.map((c) => [c.id, c]));
   const locationById = new Map(locations.map((l) => [l.id, l]));
+  const locationColorMap = buildLocationColorMap(locations.map((l) => l.id));
+
+  const daySheetAppointments: DaySheetAppointment[] = (todayBookings ?? []).map((booking) => {
+    const client = clientById.get(booking.client_id);
+    const location = locationById.get(booking.location_id);
+    return {
+      id: booking.id,
+      clientName: client?.full_name ?? client?.email ?? "Client",
+      locationName: location?.name ?? "Location",
+      startTime: booking.start_time,
+      endTime: booking.end_time,
+      color: locationColorMap.get(booking.location_id) ?? DEFAULT_LOCATION_COLOR,
+    };
+  });
 
   const { data: allBookings } = await supabase
     .from("bookings")
@@ -69,28 +98,37 @@ export default async function TrainerDashboardPage() {
         <StatCard label="Sessions this week" value={sessionsThisWeek ?? 0} tone="graphite" />
       </div>
 
+      <div className="flex items-center justify-end">
+        <Button asChild variant="outline" size="sm">
+          <Link href="/trainer/schedule">Manage schedule</Link>
+        </Button>
+      </div>
+
+      <DaySheet date={today} appointments={daySheetAppointments} />
+
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Upcoming sessions</CardTitle>
-          <Button asChild variant="outline" size="sm">
-            <Link href="/trainer/schedule">Manage schedule</Link>
-          </Button>
+        <CardHeader>
+          <CardTitle>Tomorrow</CardTitle>
         </CardHeader>
         <CardContent>
-          {!upcomingBookings || upcomingBookings.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No upcoming sessions booked yet.</p>
+          {!tomorrowBookings || tomorrowBookings.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nothing booked for tomorrow yet.</p>
           ) : (
             <ul className="flex flex-col divide-y">
-              {upcomingBookings.map((booking) => {
+              {tomorrowBookings.map((booking) => {
                 const client = clientById.get(booking.client_id);
                 const location = locationById.get(booking.location_id);
+                const color = locationColorMap.get(booking.location_id) ?? DEFAULT_LOCATION_COLOR;
                 return (
                   <li key={booking.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
-                    <div>
-                      <div className="font-medium">{client?.full_name ?? client?.email ?? "Client"}</div>
-                      <div className="text-sm text-muted-foreground">
-                        {location?.name ?? "Location"} ·{" "}
-                        {format(new Date(booking.start_time), "EEE MMM d, h:mm a")}
+                    <div className="flex items-center gap-2">
+                      <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: color.dot }} />
+                      <div>
+                        <div className="font-medium">{client?.full_name ?? client?.email ?? "Client"}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {location?.name ?? "Location"} ·{" "}
+                          {format(new Date(booking.start_time), "h:mm a")}
+                        </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">

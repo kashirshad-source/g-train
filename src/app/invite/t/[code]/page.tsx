@@ -19,7 +19,7 @@ export default async function TrainerInvitePage({
   const admin = createAdminClient();
   const { data: invite } = await admin
     .from("admin_trainer_invites")
-    .select("phone, status")
+    .select("name, phone, status")
     .eq("code", code)
     .maybeSingle();
 
@@ -35,7 +35,7 @@ export default async function TrainerInvitePage({
 
   return (
     <div className="flex min-h-screen items-center justify-center px-6 py-16">
-      <AcceptInviteWrapper code={code} phone={invite.phone} />
+      <AcceptInviteWrapper code={code} phone={invite.phone} name={invite.name ?? ""} />
     </div>
   );
 }

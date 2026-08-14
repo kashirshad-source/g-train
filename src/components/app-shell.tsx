@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { Button } from "@/components/ui/button";
+import { NotificationBell } from "@/components/notification-bell";
 import { cn } from "@/lib/utils";
 import { LOGO_PATH } from "@/lib/logo-version";
 import { LogOut } from "lucide-react";
@@ -37,16 +38,19 @@ export function AppShell({
   return (
     <div className="flex min-h-screen flex-col sm:flex-row">
       <aside className="steel-texture flex w-full flex-row items-center justify-between gap-4 border-b border-sidebar-border p-4 text-sidebar-foreground sm:w-60 sm:flex-col sm:items-stretch sm:justify-start sm:border-b-0 sm:border-r">
-        <Link href="/" className="flex items-center gap-2 px-1 sm:mb-4 sm:px-2">
-          <Image
-            src={LOGO_PATH}
-            alt="G-Train"
-            width={32}
-            height={32}
-            className="rounded-full"
-          />
-          <span className="font-heading text-2xl font-semibold tracking-tight">G-Train</span>
-        </Link>
+        <div className="flex items-center justify-between gap-2 px-1 sm:mb-4 sm:px-2">
+          <Link href="/" className="flex items-center gap-2">
+            <Image
+              src={LOGO_PATH}
+              alt="G-Train"
+              width={32}
+              height={32}
+              className="rounded-full"
+            />
+            <span className="font-heading text-2xl font-semibold tracking-tight">G-Train</span>
+          </Link>
+          <NotificationBell />
+        </div>
 
         <nav className="flex flex-1 items-center gap-1 overflow-x-auto sm:flex-none sm:flex-col sm:items-stretch sm:overflow-visible">
           {navItems.map((item) => {

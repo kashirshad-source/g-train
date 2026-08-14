@@ -87,6 +87,7 @@ create table if not exists public.admin_trainer_invites (
   id uuid primary key default gen_random_uuid(),
   code text not null unique
     default substr(md5(random()::text || clock_timestamp()::text), 1, 8),
+  name text,
   phone text,
   status text not null default 'pending' check (status in ('pending', 'accepted')),
   accepted_by uuid references public.profiles (id) on delete set null,
@@ -94,6 +95,9 @@ create table if not exists public.admin_trainer_invites (
   created_by uuid not null references public.profiles (id) on delete cascade,
   created_at timestamptz not null default now()
 );
+
+-- Existing databases: this table predates the `name` column.
+alter table public.admin_trainer_invites add column if not exists name text;
 
 create table if not exists public.bookings (
   id uuid primary key default gen_random_uuid(),
@@ -157,6 +161,66 @@ create table if not exists public.messages (
   read_at timestamptz
 );
 
+-- notifications: lightweight in-app alerts. Written only via the
+-- notify_* security-definer functions below, never inserted directly by a
+-- client, so a user can't fabricate one as if from someone else or spam
+-- another user's feed.
+create table if not exists public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  actor_id uuid not null references public.profiles (id) on delete cascade,
+  type text not null default 'booking_cancelled' check (type in (
+    'booking_cancelled', 'slot_offer_available', 'slot_offer_requested',
+    'slot_offer_confirmed', 'slot_offer_unavailable'
+  )),
+  booking_id uuid references public.bookings (id) on delete cascade,
+  slot_offer_id uuid,
+  read_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+-- Existing databases: these predate the slot-offer notification types.
+alter table public.notifications drop constraint if exists notifications_type_check;
+alter table public.notifications add constraint notifications_type_check check (type in (
+  'booking_cancelled', 'slot_offer_available', 'slot_offer_requested',
+  'slot_offer_confirmed', 'slot_offer_unavailable'
+));
+alter table public.notifications add column if not exists slot_offer_id uuid;
+
+-- slot_offers: a trainer re-opening a just-cancelled time to every client
+-- at that location. filled_booking_id is set once a request is confirmed.
+create table if not exists public.slot_offers (
+  id uuid primary key default gen_random_uuid(),
+  trainer_id uuid not null references public.profiles (id) on delete cascade,
+  location_id uuid not null references public.locations (id) on delete cascade,
+  start_time timestamptz not null,
+  end_time timestamptz not null,
+  status text not null default 'open' check (status in ('open', 'filled', 'closed')),
+  filled_booking_id uuid references public.bookings (id) on delete set null,
+  -- The booking that freed this time, if any — lets us avoid re-offering
+  -- the same cancellation twice from the notification action button.
+  source_booking_id uuid references public.bookings (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+-- Existing databases: this table predates source_booking_id.
+alter table public.slot_offers add column if not exists source_booking_id uuid references public.bookings (id) on delete set null;
+
+-- slot_offer_requests: a client raising their hand for an open slot offer.
+-- The trainer picks one to confirm; the rest just stay on record.
+create table if not exists public.slot_offer_requests (
+  id uuid primary key default gen_random_uuid(),
+  slot_offer_id uuid not null references public.slot_offers (id) on delete cascade,
+  client_id uuid not null references public.profiles (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (slot_offer_id, client_id)
+);
+
+alter table public.notifications drop constraint if exists notifications_slot_offer_id_fkey;
+alter table public.notifications
+  add constraint notifications_slot_offer_id_fkey
+  foreign key (slot_offer_id) references public.slot_offers (id) on delete cascade;
+
 create index if not exists idx_location_members_user on public.location_members (user_id);
 create index if not exists idx_location_members_location on public.location_members (location_id);
 create index if not exists idx_availability_trainer_location on public.availability (trainer_id, location_id, date);
@@ -166,6 +230,9 @@ create index if not exists idx_bookings_client on public.bookings (client_id);
 create index if not exists idx_bookings_location on public.bookings (location_id);
 create index if not exists idx_messages_conversation on public.messages (conversation_id, created_at);
 create index if not exists idx_conversation_participants_user on public.conversation_participants (user_id);
+create index if not exists idx_notifications_user on public.notifications (user_id, created_at);
+create index if not exists idx_slot_offers_location on public.slot_offers (location_id, status);
+create index if not exists idx_slot_offer_requests_offer on public.slot_offer_requests (slot_offer_id);
 
 -- ============================================================
 -- New-user bootstrap: create a profile row right after Google sign-in
@@ -381,6 +448,145 @@ $$;
 
 grant execute on function public.redeem_trainer_activation_code(text, uuid) to authenticated;
 
+-- Notifies the other party on a booking that it was cancelled. Callable by
+-- either the trainer or client on that booking; resolves the recipient as
+-- "whichever of the two isn't the caller" and writes the notification as
+-- that recipient, which a plain insert policy couldn't do without letting
+-- a user write into anyone else's notification feed.
+create or replace function public.notify_booking_cancelled(p_booking_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_trainer_id uuid;
+  v_client_id uuid;
+  v_actor uuid := auth.uid();
+  v_recipient uuid;
+begin
+  select trainer_id, client_id into v_trainer_id, v_client_id
+  from public.bookings
+  where id = p_booking_id;
+
+  if v_trainer_id is null then
+    return;
+  end if;
+
+  if v_actor is distinct from v_trainer_id and v_actor is distinct from v_client_id then
+    return;
+  end if;
+
+  v_recipient := case when v_actor = v_trainer_id then v_client_id else v_trainer_id end;
+
+  insert into public.notifications (user_id, actor_id, type, booking_id)
+  values (v_recipient, v_actor, 'booking_cancelled', p_booking_id);
+end;
+$$;
+
+grant execute on function public.notify_booking_cancelled(uuid) to authenticated;
+
+-- Notifies every client at a slot offer's location that it's open. Only
+-- the trainer who created the offer can trigger this — needed because a
+-- plain insert policy can't let one user write into many others' feeds.
+create or replace function public.notify_slot_offer_available(p_slot_offer_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_trainer_id uuid;
+  v_location_id uuid;
+begin
+  select trainer_id, location_id into v_trainer_id, v_location_id
+  from public.slot_offers
+  where id = p_slot_offer_id;
+
+  if v_trainer_id is null or v_trainer_id is distinct from auth.uid() then
+    raise exception 'not authorized';
+  end if;
+
+  insert into public.notifications (user_id, actor_id, type, slot_offer_id)
+  select lm.user_id, v_trainer_id, 'slot_offer_available', p_slot_offer_id
+  from public.location_members lm
+  where lm.location_id = v_location_id and lm.role = 'client' and lm.status = 'active';
+end;
+$$;
+
+grant execute on function public.notify_slot_offer_available(uuid) to authenticated;
+
+-- Notifies the trainer that a client requested their open slot offer.
+-- Requires an actual request row to already exist (inserted by the client
+-- under slot_offer_requests_insert's RLS check, just before this call).
+create or replace function public.notify_slot_offer_requested(p_slot_offer_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_trainer_id uuid;
+  v_client_id uuid := auth.uid();
+  v_status text;
+begin
+  select trainer_id, status into v_trainer_id, v_status
+  from public.slot_offers
+  where id = p_slot_offer_id;
+
+  if v_trainer_id is null or v_status <> 'open' then
+    raise exception 'offer not available';
+  end if;
+
+  if not exists (
+    select 1 from public.slot_offer_requests
+    where slot_offer_id = p_slot_offer_id and client_id = v_client_id
+  ) then
+    raise exception 'no request on file';
+  end if;
+
+  insert into public.notifications (user_id, actor_id, type, slot_offer_id)
+  values (v_trainer_id, v_client_id, 'slot_offer_requested', p_slot_offer_id);
+end;
+$$;
+
+grant execute on function public.notify_slot_offer_requested(uuid) to authenticated;
+
+-- Notifies the winning requester their slot is confirmed, and every other
+-- requester that it's no longer available. Called by the trainer right
+-- after they've booked the winner and marked the offer filled themselves
+-- (both plain RLS-governed writes) — this just handles the fan-out
+-- notifications, which cross into other users' feeds.
+create or replace function public.notify_slot_offer_result(p_slot_offer_id uuid, p_winning_client_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_trainer_id uuid;
+  v_booking_id uuid;
+begin
+  select trainer_id, filled_booking_id into v_trainer_id, v_booking_id
+  from public.slot_offers
+  where id = p_slot_offer_id;
+
+  if v_trainer_id is null or v_trainer_id is distinct from auth.uid() then
+    raise exception 'not authorized';
+  end if;
+
+  insert into public.notifications (user_id, actor_id, type, booking_id)
+  values (p_winning_client_id, v_trainer_id, 'slot_offer_confirmed', v_booking_id);
+
+  insert into public.notifications (user_id, actor_id, type, slot_offer_id)
+  select client_id, v_trainer_id, 'slot_offer_unavailable', p_slot_offer_id
+  from public.slot_offer_requests
+  where slot_offer_id = p_slot_offer_id and client_id <> p_winning_client_id;
+end;
+$$;
+
+grant execute on function public.notify_slot_offer_result(uuid, uuid) to authenticated;
+
 -- When a phone number and role are set (at signup or later in Settings),
 -- match against any pending invite for that number+role and roster them up
 -- — as a client (also recorded on the inviting trainer's roster) or as a
@@ -436,6 +642,9 @@ alter table public.location_invites enable row level security;
 alter table public.conversations enable row level security;
 alter table public.conversation_participants enable row level security;
 alter table public.messages enable row level security;
+alter table public.notifications enable row level security;
+alter table public.slot_offers enable row level security;
+alter table public.slot_offer_requests enable row level security;
 
 -- profiles: see your own profile, or anyone who shares a location with you
 create policy "profiles_select" on public.profiles
@@ -548,6 +757,55 @@ create policy "client_rosters_select" on public.client_rosters
 
 create policy "client_rosters_insert" on public.client_rosters
   for insert with check (client_id = auth.uid());
+
+-- notifications: only ever readable/updatable (marking read) by their
+-- recipient; writes only happen through the notify_* functions above
+create policy "notifications_select" on public.notifications
+  for select using (user_id = auth.uid());
+
+create policy "notifications_update" on public.notifications
+  for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- slot_offers: the trainer who posted it, or any active member of that
+-- location (so clients can see it to request it), can see it. Only the
+-- trainer can create or update one — no client-side path to fabricate an
+-- offer or mark someone else's offer filled.
+create policy "slot_offers_select" on public.slot_offers
+  for select using (
+    trainer_id = auth.uid() or public.is_location_member(location_id, auth.uid())
+  );
+
+create policy "slot_offers_insert" on public.slot_offers
+  for insert with check (
+    trainer_id = auth.uid() and public.is_location_trainer(location_id, auth.uid())
+  );
+
+create policy "slot_offers_update" on public.slot_offers
+  for update using (trainer_id = auth.uid()) with check (trainer_id = auth.uid());
+
+-- slot_offer_requests: a client can request an open offer at a location
+-- they belong to (never on behalf of anyone else); the client who made it
+-- and the trainer who owns the offer can both see it.
+create policy "slot_offer_requests_select" on public.slot_offer_requests
+  for select using (
+    client_id = auth.uid()
+    or exists (
+      select 1 from public.slot_offers so
+      where so.id = slot_offer_id and so.trainer_id = auth.uid()
+    )
+  );
+
+create policy "slot_offer_requests_insert" on public.slot_offer_requests
+  for insert with check (
+    client_id = auth.uid()
+    and exists (
+      select 1 from public.slot_offers so
+      join public.location_members lm
+        on lm.location_id = so.location_id and lm.user_id = auth.uid()
+      where so.id = slot_offer_id and so.status = 'open'
+        and lm.role = 'client' and lm.status = 'active'
+    )
+  );
 
 -- location_invites: only the trainer who sent it can list their invites;
 -- matching and acceptance go through the security-definer trigger function

@@ -12,14 +12,16 @@ export function AcceptInviteForm({
   title,
   description,
   phone,
+  initialName,
   onSubmit,
 }: {
   title: string;
   description: string;
   phone: string;
+  initialName?: string;
   onSubmit: (name: string, password: string) => Promise<{ error?: string } | undefined>;
 }) {
-  const [name, setName] = useState("");
+  const [name, setName] = useState(initialName ?? "");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isPending, startTransition] = useTransition();
