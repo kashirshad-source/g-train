@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { normalizePhone } from "@/lib/phone";
 
 export async function updateProfile(formData: FormData) {
@@ -43,6 +44,10 @@ export async function changePassword(formData: FormData): Promise<{ error?: stri
   const { error } = await supabase.auth.updateUser({ password });
   if (error) return { error: "Couldn't update your password. Try again." };
 
-  await supabase.from("profiles").update({ must_change_password: false }).eq("id", user.id);
+  // A plain user update can't clear this flag (see protect_profile_flags_trigger)
+  // — it's only allowed via the service-role client, and only reached here
+  // after the password rotation above has actually succeeded.
+  const admin = createAdminClient();
+  await admin.from("profiles").update({ must_change_password: false }).eq("id", user.id);
   return {};
 }

@@ -8,25 +8,17 @@ import { AddToCalendar } from "@/components/add-to-calendar";
 import { DaySheet, type DaySheetAppointment } from "@/components/day-sheet";
 import { buildLocationColorMap, DEFAULT_LOCATION_COLOR } from "@/lib/location-colors";
 import { BookSessionButton } from "./book-session-button";
-import { format, startOfWeek, endOfWeek, startOfDay, endOfDay, addDays } from "date-fns";
+import { format, startOfDay, endOfDay, addDays } from "date-fns";
 
 export default async function TrainerDashboardPage() {
   const { supabase, user, profile } = await requireUserWithRole("trainer");
 
   const today = new Date();
   const tomorrow = addDays(today, 1);
-  const weekStart = startOfWeek(new Date());
-  const weekEnd = endOfWeek(new Date());
 
-  // These five don't depend on each other, so fetch them in parallel
+  // These three don't depend on each other, so fetch them in parallel
   // instead of waiting on one Supabase round trip at a time.
-  const [
-    locations,
-    { data: todayBookings },
-    { data: tomorrowBookings },
-    { data: allBookings },
-    { count: sessionsThisWeek },
-  ] = await Promise.all([
+  const [locations, { data: todayBookings }, { data: tomorrowBookings }] = await Promise.all([
     getMyLocations(supabase, user.id, "trainer"),
     supabase
       .from("bookings")
@@ -44,14 +36,6 @@ export default async function TrainerDashboardPage() {
       .gte("start_time", startOfDay(tomorrow).toISOString())
       .lte("start_time", endOfDay(tomorrow).toISOString())
       .order("start_time", { ascending: true }),
-    supabase.from("bookings").select("client_id").eq("trainer_id", user.id),
-    supabase
-      .from("bookings")
-      .select("*", { count: "exact", head: true })
-      .eq("trainer_id", user.id)
-      .neq("status", "cancelled")
-      .gte("start_time", weekStart.toISOString())
-      .lte("start_time", weekEnd.toISOString()),
   ]);
 
   const clientIds = [
@@ -71,7 +55,6 @@ export default async function TrainerDashboardPage() {
   const clientById = new Map(clientProfiles.map((c) => [c.id, c]));
   const locationById = new Map(locations.map((l) => [l.id, l]));
   const locationColorMap = buildLocationColorMap(locations.map((l) => l.id));
-  const totalClients = new Set((allBookings ?? []).map((b) => b.client_id)).size;
 
   const daySheetAppointments: DaySheetAppointment[] = (todayBookings ?? []).map((booking) => {
     const client = clientById.get(booking.client_id);
@@ -100,11 +83,29 @@ export default async function TrainerDashboardPage() {
         )}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="Locations" value={locations.length} tone="sky" />
-        <StatCard label="Active clients" value={totalClients} tone="azure" />
-        <StatCard label="Sessions this week" value={sessionsThisWeek ?? 0} tone="graphite" />
-      </div>
+      {locations.length > 0 && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {locations.map((loc) => {
+            const color = locationColorMap.get(loc.id) ?? DEFAULT_LOCATION_COLOR;
+            return (
+              <Card key={loc.id}>
+                <CardContent className="flex items-center justify-between gap-3 py-6">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="size-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: color.dot }}
+                    />
+                    <span className="font-medium">{loc.name}</span>
+                  </div>
+                  <Button asChild size="sm" variant="cta">
+                    <Link href={`/trainer/book?location=${loc.id}`}>Book a session</Link>
+                  </Button>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
 
       <div className="flex items-center justify-end">
         <Button asChild variant="outline" size="sm">
@@ -169,33 +170,5 @@ export default async function TrainerDashboardPage() {
         </Card>
       )}
     </div>
-  );
-}
-
-// Soft tints for the stat tiles — two stops of the palette's light-blue
-// accent, plus a neutral tint of the anchor black. Gold stays reserved for
-// the one CTA on the page (Book a session), per the brand palette.
-const STAT_TONES = {
-  sky: "#D7F2FD",
-  azure: "#BAE6FD",
-  graphite: "#E7EAEE",
-} as const;
-
-function StatCard({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone: keyof typeof STAT_TONES;
-}) {
-  return (
-    <Card style={{ backgroundColor: STAT_TONES[tone] }}>
-      <CardContent className="py-6">
-        <div className="text-3xl font-semibold text-primary">{value}</div>
-        <div className="text-sm text-muted-foreground">{label}</div>
-      </CardContent>
-    </Card>
   );
 }

@@ -16,6 +16,7 @@ export async function requireUserWithRole(role: Role) {
     .single();
 
   if (!profile?.default_role) redirect("/onboarding");
+  if (profile.must_change_password) redirect("/change-password");
   if (profile.default_role !== role) {
     redirect(profile.default_role === "trainer" ? "/trainer/dashboard" : "/client/dashboard");
   }
@@ -37,6 +38,7 @@ export async function requireAdmin() {
     .single();
 
   if (!profile?.is_admin) redirect("/");
+  if (profile.must_change_password) redirect("/change-password");
 
   return { supabase, user, profile };
 }
@@ -55,6 +57,7 @@ export async function requireProfile() {
     .single();
 
   if (!profile?.default_role) redirect("/onboarding");
+  if (profile.must_change_password) redirect("/change-password");
 
   return { supabase, user, profile };
 }

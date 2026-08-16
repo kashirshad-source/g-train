@@ -96,5 +96,4 @@ export async function deleteLocation(locationId: string) {
 
   revalidatePath("/trainer/locations");
   revalidatePath("/trainer/schedule");
-  revalidatePath("/trainer/clients");
 }

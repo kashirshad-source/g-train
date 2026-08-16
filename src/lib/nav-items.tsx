@@ -2,7 +2,6 @@ import {
   LayoutDashboard,
   CalendarClock,
   CalendarPlus,
-  Users,
   MapPin,
   Settings,
   ShieldCheck,
@@ -12,7 +11,6 @@ import type { NavItem } from "@/components/app-shell";
 export const TRAINER_NAV_ITEMS: NavItem[] = [
   { href: "/trainer/dashboard", label: "Dashboard", icon: <LayoutDashboard className="size-4" /> },
   { href: "/trainer/schedule", label: "Schedule", icon: <CalendarClock className="size-4" /> },
-  { href: "/trainer/clients", label: "Clients", icon: <Users className="size-4" /> },
   { href: "/trainer/locations", label: "Locations", icon: <MapPin className="size-4" /> },
   { href: "/settings", label: "Settings", icon: <Settings className="size-4" /> },
 ];

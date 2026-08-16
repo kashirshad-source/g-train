@@ -428,6 +428,36 @@ create trigger protect_is_admin_trigger
 before update on public.profiles
 for each row execute function public.protect_is_admin();
 
+-- Blocks an account holder from clearing their own must_change_password
+-- flag (or changing their username) via a direct API update — the app's
+-- own changePassword action clears the flag, but only via the service-role
+-- client, and only after auth.updateUser() has actually rotated the
+-- password. Without this, a trainer still on the shared starting password
+-- could dismiss the forced-change screen without ever changing it.
+create or replace function public.protect_profile_flags()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.username is distinct from old.username
+    or new.must_change_password is distinct from old.must_change_password
+  then
+    if auth.role() <> 'service_role' and not public.is_admin(auth.uid()) then
+      new.username := old.username;
+      new.must_change_password := old.must_change_password;
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists protect_profile_flags_trigger on public.profiles;
+create trigger protect_profile_flags_trigger
+before update on public.profiles
+for each row execute function public.protect_profile_flags();
+
 -- Redeems a trainer activation code during onboarding. Callable by anyone
 -- (the person isn't a trainer yet, so can't be gated behind is_location_*
 -- style checks) — safe because it only flips one pending row to accepted

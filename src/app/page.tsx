@@ -27,17 +27,14 @@ export default async function Home() {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="flex items-center justify-between px-6 py-5 sm:px-10">
-        <div className="flex items-center gap-3">
-          <Image
-            src={LOGO_PATH}
-            alt="G-Train"
-            width={40}
-            height={40}
-            className="rounded-full"
-            priority
-          />
-          <span className="font-heading text-2xl font-semibold tracking-tight">G-Train</span>
-        </div>
+        <Image
+          src={LOGO_PATH}
+          alt="G-Train"
+          width={56}
+          height={56}
+          className="rounded-full"
+          priority
+        />
       </header>
 
       <main className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
@@ -74,15 +71,14 @@ export default async function Home() {
         </div>
       </main>
 
-      <footer className="flex items-center justify-center gap-2 px-6 py-8 text-sm text-muted-foreground">
+      <footer className="flex items-center justify-center px-6 py-8">
         <Image
           src={LOGO_PATH}
-          alt=""
-          width={20}
-          height={20}
+          alt="G-Train"
+          width={28}
+          height={28}
           className="rounded-full opacity-80"
         />
-        G-Train
       </footer>
     </div>
   );

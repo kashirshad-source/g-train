@@ -22,10 +22,10 @@ export default async function SettingsPage() {
         <CardContent className="flex flex-col gap-6">
           <div>
             <div className="font-medium">
-              {profile.full_name ?? profile.email ?? profile.phone}
+              {profile.full_name ?? profile.email ?? profile.phone ?? profile.username}
             </div>
             <div className="text-sm text-muted-foreground">
-              {profile.email ?? profile.phone}
+              {profile.email ?? profile.phone ?? (profile.username ? `Username: ${profile.username}` : null)}
             </div>
             {profile.default_role && (
               <Badge variant="secondary" className="mt-1 capitalize">

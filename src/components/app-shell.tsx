@@ -39,15 +39,15 @@ export function AppShell({
     <div className="flex min-h-screen flex-col sm:flex-row">
       <aside className="steel-texture flex w-full flex-row items-center justify-between gap-4 border-b border-sidebar-border p-4 text-sidebar-foreground sm:w-60 sm:flex-col sm:items-stretch sm:justify-start sm:border-b-0 sm:border-r">
         <div className="flex items-center justify-between gap-2 px-1 sm:mb-4 sm:px-2">
-          <Link href="/" className="flex items-center gap-2">
+          <Link href="/" className="flex items-center">
             <Image
               src={LOGO_PATH}
               alt="G-Train"
-              width={32}
-              height={32}
+              width={56}
+              height={56}
               className="rounded-full"
+              priority
             />
-            <span className="font-heading text-2xl font-semibold tracking-tight">G-Train</span>
           </Link>
           <NotificationBell />
         </div>
