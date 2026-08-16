@@ -14,47 +14,35 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { UserPlus, Copy } from "lucide-react";
-import { generateTrainerInvite } from "./actions";
+import { createTrainerAccount } from "./actions";
 import { toast } from "sonner";
 
 export function InviteTrainerButton() {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [sending, setSending] = useState(false);
-  const [code, setCode] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [username, setUsername] = useState<string | null>(null);
 
-  async function handleGenerate() {
+  async function handleCreate() {
     if (!name.trim()) {
       toast.error("Enter their name");
       return;
     }
-    if (!phone.trim()) {
-      toast.error("Enter their phone number");
+    setCreating(true);
+    const result = await createTrainerAccount(name);
+    setCreating(false);
+    if (result.error || !result.username) {
+      toast.error(result.error ?? "Couldn't create that account.");
       return;
     }
-    setSending(true);
-    const result = await generateTrainerInvite(name, phone);
-    setSending(false);
-    if (result.error || !result.code) {
-      toast.error(result.error ?? "Couldn't create the invite.");
-      return;
-    }
-
-    setCode(result.code);
-    const digits = phone.replace(/\D/g, "");
-    const link = `${window.location.origin}/invite/t/${result.code}`;
-    const message = `Hi ${name.trim().split(" ")[0]}, you're invited to join G-Train as a trainer! Tap to join: ${link}`;
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-    window.location.href = `sms:${digits}${isIOS ? "&" : "?"}body=${encodeURIComponent(message)}`;
+    setUsername(result.username);
   }
 
   function handleOpenChange(next: boolean) {
     setOpen(next);
     if (!next) {
       setName("");
-      setPhone("");
-      setCode(null);
+      setUsername(null);
     }
   }
 
@@ -69,7 +57,7 @@ export function InviteTrainerButton() {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Invite a trainer</DialogTitle>
-          <DialogDescription>Opens a text with a join link.</DialogDescription>
+          <DialogDescription>Creates their account right away.</DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="admin-invite-name">Their name</Label>
@@ -79,40 +67,43 @@ export function InviteTrainerButton() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             autoFocus
+            disabled={!!username}
           />
         </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="admin-invite-phone">Their phone number</Label>
-          <Input
-            id="admin-invite-phone"
-            type="tel"
-            placeholder="(555) 123-4567"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-          />
-        </div>
-        {code && (
-          <div className="flex items-center justify-between rounded-md border border-border bg-secondary/40 px-3 py-2 text-sm">
-            <span>
-              Activation code: <span className="font-mono font-semibold tabular-nums">{code}</span>
+        {username && (
+          <div className="flex flex-col gap-1.5 rounded-md border border-border bg-secondary/40 px-3 py-2 text-sm">
+            <div className="flex items-center justify-between">
+              <span>
+                Username: <span className="font-mono font-semibold">{username}</span>
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  navigator.clipboard.writeText(`Username: ${username}\nPassword: Granite`);
+                  toast.success("Copied");
+                }}
+              >
+                <Copy className="size-4" />
+              </Button>
+            </div>
+            <span className="text-muted-foreground">
+              Password: <span className="font-mono font-semibold text-foreground">Granite</span> — they&apos;ll
+              be asked to change it on first sign-in.
             </span>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={() => {
-                navigator.clipboard.writeText(code);
-                toast.success("Code copied");
-              }}
-            >
-              <Copy className="size-4" />
-            </Button>
           </div>
         )}
         <DialogFooter>
-          <Button type="button" variant="cta" disabled={sending} onClick={handleGenerate}>
-            {sending ? "Generating…" : "Generate & text"}
-          </Button>
+          {username ? (
+            <Button type="button" variant="cta" onClick={() => handleOpenChange(false)}>
+              Done
+            </Button>
+          ) : (
+            <Button type="button" variant="cta" disabled={creating} onClick={handleCreate}>
+              {creating ? "Creating…" : "Create trainer"}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -13,11 +13,13 @@ export default async function TrainerLocationsPage() {
   const locations = await getMyLocations(supabase, user.id, "trainer");
 
   const rosters = await Promise.all(
-    locations.map(async (location) => ({
-      location,
-      trainers: await getLocationMembersByRole(supabase, location.id, "trainer"),
-      clients: await getRosteredClients(supabase, user.id, location.id),
-    }))
+    locations.map(async (location) => {
+      const [trainers, clients] = await Promise.all([
+        getLocationMembersByRole(supabase, location.id, "trainer"),
+        getRosteredClients(supabase, user.id, location.id),
+      ]);
+      return { location, trainers, clients };
+    })
   );
 
   return (

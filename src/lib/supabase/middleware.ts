@@ -41,16 +41,22 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (user && !isPublic && path !== "/onboarding") {
+  if (user && !isPublic && path !== "/onboarding" && path !== "/change-password") {
     const { data: profile } = await supabase
       .from("profiles")
-      .select("default_role")
+      .select("default_role, must_change_password")
       .eq("id", user.id)
       .maybeSingle();
 
     if (!profile || !profile.default_role) {
       const url = request.nextUrl.clone();
       url.pathname = "/onboarding";
+      return NextResponse.redirect(url);
+    }
+
+    if (profile.must_change_password) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/change-password";
       return NextResponse.redirect(url);
     }
   }

@@ -20,8 +20,20 @@ create table if not exists public.profiles (
   -- Platform admin. Can never be set by the account holder themselves —
   -- see protect_is_admin_trigger below — only by an existing admin.
   is_admin boolean not null default false,
+  -- Login handle for accounts created directly by an admin (trainers), as
+  -- an alternative to a real email — e.g. "smith", deduped to "smith2" if
+  -- taken. Null for accounts that sign in with a real email.
+  username text unique,
+  -- Set true right after an admin creates a trainer account with the
+  -- shared starting password; forces a password change before anything
+  -- else is usable. See the middleware gate and /change-password.
+  must_change_password boolean not null default false,
   created_at timestamptz not null default now()
 );
+
+-- Existing databases: this table predates username/must_change_password.
+alter table public.profiles add column if not exists username text unique;
+alter table public.profiles add column if not exists must_change_password boolean not null default false;
 
 create table if not exists public.locations (
   id uuid primary key default gen_random_uuid(),

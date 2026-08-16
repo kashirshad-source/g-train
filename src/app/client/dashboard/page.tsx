@@ -9,34 +9,38 @@ import { OpenSlots } from "./open-slots";
 export default async function ClientDashboardPage() {
   const { supabase, user, profile } = await requireUserWithRole("client");
 
-  const locations = await getMyLocations(supabase, user.id, "client");
-
   const nowISO = new Date().toISOString();
-  const { data: bookings } = await supabase
-    .from("bookings")
-    .select("*")
-    .eq("client_id", user.id)
-    .neq("status", "cancelled")
-    .gte("start_time", nowISO)
-    .order("start_time", { ascending: true })
-    .limit(10);
 
-  // "Usual trainer": whoever the most recent booking was with, so the
-  // primary CTA can skip straight to picking a time instead of re-picking
-  // a location and trainer the client has already been training with.
-  // Falls back to their only trainer relationship if they haven't booked yet.
-  const { data: recentBooking } = await supabase
-    .from("bookings")
-    .select("trainer_id, location_id")
-    .eq("client_id", user.id)
-    .neq("status", "cancelled")
-    .order("start_time", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // These three don't depend on each other, so fetch them together
+  // instead of one Supabase round trip at a time.
+  const [locations, { data: bookings }, { data: recentBooking }] = await Promise.all([
+    getMyLocations(supabase, user.id, "client"),
+    supabase
+      .from("bookings")
+      .select("*")
+      .eq("client_id", user.id)
+      .neq("status", "cancelled")
+      .gte("start_time", nowISO)
+      .order("start_time", { ascending: true })
+      .limit(10),
+    // "Usual trainer": whoever the most recent booking was with, so the
+    // primary CTA can skip straight to picking a time instead of re-picking
+    // a location and trainer the client has already been training with.
+    supabase
+      .from("bookings")
+      .select("trainer_id, location_id")
+      .eq("client_id", user.id)
+      .neq("status", "cancelled")
+      .order("start_time", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
 
   let usualTrainerId = recentBooking?.trainer_id ?? null;
   let usualLocationId = recentBooking?.location_id ?? null;
 
+  // Falls back to their only trainer relationship if they haven't booked yet
+  // — rare (only new clients hit this), so it's fine as its own round trip.
   if (!usualTrainerId) {
     const { data: rosterRows } = await supabase
       .from("client_rosters")
@@ -51,19 +55,20 @@ export default async function ClientDashboardPage() {
   const trainerIds = [
     ...new Set([...(bookings ?? []).map((b) => b.trainer_id), ...(usualTrainerId ? [usualTrainerId] : [])]),
   ];
-  const trainers = await getProfilesByIds(supabase, trainerIds);
-  const usualTrainer = usualTrainerId ? trainers.find((t) => t.id === usualTrainerId) : undefined;
-
   const locationIds = locations.map((l) => l.id);
-  const { data: openOffers } =
+
+  const [trainers, { data: openOffers }] = await Promise.all([
+    getProfilesByIds(supabase, trainerIds),
     locationIds.length > 0
-      ? await supabase
+      ? supabase
           .from("slot_offers")
           .select("id, location_id, start_time, end_time")
           .in("location_id", locationIds)
           .eq("status", "open")
           .order("start_time", { ascending: true })
-      : { data: [] };
+      : Promise.resolve({ data: [] }),
+  ]);
+  const usualTrainer = usualTrainerId ? trainers.find((t) => t.id === usualTrainerId) : undefined;
 
   const offerIds = (openOffers ?? []).map((o) => o.id);
   const { data: myRequests } =

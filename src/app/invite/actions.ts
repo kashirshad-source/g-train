@@ -79,38 +79,3 @@ export async function acceptLocationInvite(
 
   redirect(invite.role === "trainer" ? "/trainer/dashboard" : "/client/dashboard");
 }
-
-export async function acceptTrainerInvite(
-  code: string,
-  name: string,
-  password: string
-): Promise<{ error?: string }> {
-  if (!name.trim()) return { error: "Enter your name." };
-  if (password.length < 6) return { error: "Password must be at least 6 characters." };
-
-  const admin = createAdminClient();
-  const { data: invite } = await admin
-    .from("admin_trainer_invites")
-    .select("id, phone, status")
-    .eq("code", code)
-    .maybeSingle();
-
-  if (!invite || invite.status !== "pending" || !invite.phone) {
-    return { error: "This invite is no longer valid." };
-  }
-
-  const result = await createAccountAndSignIn({
-    phone: invite.phone,
-    name: name.trim(),
-    password,
-    defaultRole: "trainer",
-  });
-  if (result.error) return result;
-
-  await admin
-    .from("admin_trainer_invites")
-    .update({ status: "accepted", accepted_at: new Date().toISOString(), accepted_by: result.userId })
-    .eq("id", invite.id);
-
-  redirect("/trainer/dashboard");
-}

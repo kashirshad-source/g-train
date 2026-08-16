@@ -13,41 +13,65 @@ import { format, startOfWeek, endOfWeek, startOfDay, endOfDay, addDays } from "d
 export default async function TrainerDashboardPage() {
   const { supabase, user, profile } = await requireUserWithRole("trainer");
 
-  const locations = await getMyLocations(supabase, user.id, "trainer");
-
-  const clientsByLocationEntries = await Promise.all(
-    locations.map(async (loc) => [loc.id, await getRosteredClients(supabase, user.id, loc.id)] as const)
-  );
-  const clientsByLocation = Object.fromEntries(clientsByLocationEntries);
-
   const today = new Date();
   const tomorrow = addDays(today, 1);
+  const weekStart = startOfWeek(new Date());
+  const weekEnd = endOfWeek(new Date());
 
-  const { data: todayBookings } = await supabase
-    .from("bookings")
-    .select("*")
-    .eq("trainer_id", user.id)
-    .neq("status", "cancelled")
-    .gte("start_time", startOfDay(today).toISOString())
-    .lte("start_time", endOfDay(today).toISOString())
-    .order("start_time", { ascending: true });
-
-  const { data: tomorrowBookings } = await supabase
-    .from("bookings")
-    .select("*")
-    .eq("trainer_id", user.id)
-    .neq("status", "cancelled")
-    .gte("start_time", startOfDay(tomorrow).toISOString())
-    .lte("start_time", endOfDay(tomorrow).toISOString())
-    .order("start_time", { ascending: true });
+  // These five don't depend on each other, so fetch them in parallel
+  // instead of waiting on one Supabase round trip at a time.
+  const [
+    locations,
+    { data: todayBookings },
+    { data: tomorrowBookings },
+    { data: allBookings },
+    { count: sessionsThisWeek },
+  ] = await Promise.all([
+    getMyLocations(supabase, user.id, "trainer"),
+    supabase
+      .from("bookings")
+      .select("*")
+      .eq("trainer_id", user.id)
+      .neq("status", "cancelled")
+      .gte("start_time", startOfDay(today).toISOString())
+      .lte("start_time", endOfDay(today).toISOString())
+      .order("start_time", { ascending: true }),
+    supabase
+      .from("bookings")
+      .select("*")
+      .eq("trainer_id", user.id)
+      .neq("status", "cancelled")
+      .gte("start_time", startOfDay(tomorrow).toISOString())
+      .lte("start_time", endOfDay(tomorrow).toISOString())
+      .order("start_time", { ascending: true }),
+    supabase.from("bookings").select("client_id").eq("trainer_id", user.id),
+    supabase
+      .from("bookings")
+      .select("*", { count: "exact", head: true })
+      .eq("trainer_id", user.id)
+      .neq("status", "cancelled")
+      .gte("start_time", weekStart.toISOString())
+      .lte("start_time", weekEnd.toISOString()),
+  ]);
 
   const clientIds = [
     ...new Set([...(todayBookings ?? []), ...(tomorrowBookings ?? [])].map((b) => b.client_id)),
   ];
-  const clientProfiles = await getProfilesByIds(supabase, clientIds);
+
+  // These two depend on the results above (locations, booking client ids)
+  // but not on each other, so they can still run together.
+  const [clientsByLocationEntries, clientProfiles] = await Promise.all([
+    Promise.all(
+      locations.map(async (loc) => [loc.id, await getRosteredClients(supabase, user.id, loc.id)] as const)
+    ),
+    getProfilesByIds(supabase, clientIds),
+  ]);
+  const clientsByLocation = Object.fromEntries(clientsByLocationEntries);
+
   const clientById = new Map(clientProfiles.map((c) => [c.id, c]));
   const locationById = new Map(locations.map((l) => [l.id, l]));
   const locationColorMap = buildLocationColorMap(locations.map((l) => l.id));
+  const totalClients = new Set((allBookings ?? []).map((b) => b.client_id)).size;
 
   const daySheetAppointments: DaySheetAppointment[] = (todayBookings ?? []).map((booking) => {
     const client = clientById.get(booking.client_id);
@@ -61,22 +85,6 @@ export default async function TrainerDashboardPage() {
       color: locationColorMap.get(booking.location_id) ?? DEFAULT_LOCATION_COLOR,
     };
   });
-
-  const { data: allBookings } = await supabase
-    .from("bookings")
-    .select("client_id")
-    .eq("trainer_id", user.id);
-  const totalClients = new Set((allBookings ?? []).map((b) => b.client_id)).size;
-
-  const weekStart = startOfWeek(new Date());
-  const weekEnd = endOfWeek(new Date());
-  const { count: sessionsThisWeek } = await supabase
-    .from("bookings")
-    .select("*", { count: "exact", head: true })
-    .eq("trainer_id", user.id)
-    .neq("status", "cancelled")
-    .gte("start_time", weekStart.toISOString())
-    .lte("start_time", weekEnd.toISOString());
 
   return (
     <div className="flex flex-col gap-8">

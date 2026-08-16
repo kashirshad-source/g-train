@@ -11,10 +11,12 @@ export default async function ClientBookPage({
   const { supabase, user } = await requireUserWithRole("client");
   const locations = await getMyLocations(supabase, user.id, "client");
 
-  const trainersByLocation: Record<string, { id: string; full_name: string | null; email: string | null }[]> = {};
-  for (const location of locations) {
-    trainersByLocation[location.id] = await getLocationMembersByRole(supabase, location.id, "trainer");
-  }
+  const trainersByLocationEntries = await Promise.all(
+    locations.map(
+      async (location) => [location.id, await getLocationMembersByRole(supabase, location.id, "trainer")] as const
+    )
+  );
+  const trainersByLocation = Object.fromEntries(trainersByLocationEntries);
 
   // Only honor the shortcut's query params if they actually match a
   // location/trainer this client can see — never trust them blindly.

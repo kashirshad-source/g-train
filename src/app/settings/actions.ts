@@ -26,3 +26,23 @@ export async function updateProfile(formData: FormData) {
     .eq("id", user.id);
   revalidatePath("/settings");
 }
+
+export async function changePassword(formData: FormData): Promise<{ error?: string }> {
+  const password = formData.get("password") as string;
+  const confirm = formData.get("confirm") as string;
+
+  if (password.length < 6) return { error: "Password must be at least 6 characters." };
+  if (password !== confirm) return { error: "Passwords don't match." };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) return { error: "Couldn't update your password. Try again." };
+
+  await supabase.from("profiles").update({ must_change_password: false }).eq("id", user.id);
+  return {};
+}

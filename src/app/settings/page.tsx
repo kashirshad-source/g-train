@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatPhone } from "@/lib/phone";
 import { SettingsForm } from "./settings-form";
+import { ChangePasswordCard } from "./change-password-card";
 
 export default async function SettingsPage() {
   const { user, profile } = await requireProfile();
@@ -41,6 +42,8 @@ export default async function SettingsPage() {
           />
         </CardContent>
       </Card>
+
+      <ChangePasswordCard />
     </div>
   );
 }

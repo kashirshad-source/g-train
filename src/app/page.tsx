@@ -1,7 +1,6 @@
 import Image from "next/image";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { GoogleSignInButton } from "@/components/auth/google-sign-in-button";
 import { EmailSignInForm } from "@/components/auth/email-sign-in-form";
 import { LOGO_PATH } from "@/lib/logo-version";
 import { CalendarClock, MapPin } from "lucide-react";
@@ -39,7 +38,6 @@ export default async function Home() {
           />
           <span className="font-heading text-2xl font-semibold tracking-tight">G-Train</span>
         </div>
-        <GoogleSignInButton size="sm" />
       </header>
 
       <main className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
@@ -59,12 +57,6 @@ export default async function Home() {
           across every location you train at.
         </p>
         <div className="mt-8 flex flex-col items-center gap-4">
-          <GoogleSignInButton />
-          <div className="flex w-full max-w-xs items-center gap-3 text-xs text-muted-foreground">
-            <div className="h-px flex-1 bg-border" />
-            or
-            <div className="h-px flex-1 bg-border" />
-          </div>
           <EmailSignInForm />
         </div>
 

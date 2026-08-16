@@ -2,27 +2,65 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
-import { normalizePhone } from "@/lib/phone";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { slugifyUsername, usernameToSyntheticEmail } from "@/lib/username";
 
-export async function generateTrainerInvite(
-  name: string,
-  phone: string
-): Promise<{ code?: string; error?: string }> {
-  const { supabase, user } = await requireAdmin();
+// Every trainer account an admin creates starts with this password and
+// must change it before they can use anything else — see the
+// must_change_password gate in middleware.ts.
+const STARTING_PASSWORD = "Granite";
 
-  if (!name.trim()) return { error: "Enter their name." };
+export async function createTrainerAccount(name: string): Promise<{ username?: string; error?: string }> {
+  await requireAdmin();
 
-  const normalized = normalizePhone(phone);
-  if (normalized.length !== 10) return { error: "Enter a valid phone number." };
+  const trimmedName = name.trim();
+  if (!trimmedName) return { error: "Enter their name." };
 
-  const { data, error } = await supabase
-    .from("admin_trainer_invites")
-    .insert({ name: name.trim(), phone: normalized, created_by: user.id })
-    .select("code")
-    .single();
+  const nameParts = trimmedName.split(/\s+/);
+  const base = slugifyUsername(nameParts[nameParts.length - 1] ?? "");
+  if (!base) return { error: "Enter a valid name." };
 
-  if (error || !data) return { error: "Couldn't create the invite. Try again." };
+  const admin = createAdminClient();
+
+  // Find any usernames already starting with the same base, so a second
+  // "Smith" gets "smith2" instead of colliding with the first.
+  const { data: existing } = await admin
+    .from("profiles")
+    .select("username")
+    .ilike("username", `${base}%`);
+
+  const taken = new Set((existing ?? []).map((p) => p.username));
+  let username = base;
+  let suffix = 2;
+  while (taken.has(username)) {
+    username = `${base}${suffix}`;
+    suffix += 1;
+  }
+
+  const { data: created, error: createError } = await admin.auth.admin.createUser({
+    email: usernameToSyntheticEmail(username),
+    password: STARTING_PASSWORD,
+    email_confirm: true,
+    user_metadata: { full_name: trimmedName },
+  });
+  if (createError || !created.user) {
+    return { error: "Couldn't create that account. Try again." };
+  }
+
+  const { error: profileError } = await admin
+    .from("profiles")
+    .update({
+      full_name: trimmedName,
+      username,
+      default_role: "trainer",
+      must_change_password: true,
+      email: null,
+    })
+    .eq("id", created.user.id);
+  if (profileError) {
+    return { error: "Account was created but setup failed. Contact support." };
+  }
 
   revalidatePath("/admin");
-  return { code: data.code };
+  return { username };
 }

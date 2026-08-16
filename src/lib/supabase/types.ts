@@ -17,6 +17,8 @@ export interface Database {
           goals: string | null;
           phone: string | null;
           is_admin: boolean;
+          username: string | null;
+          must_change_password: boolean;
           created_at: string;
         };
         Insert: {
@@ -30,6 +32,8 @@ export interface Database {
           goals?: string | null;
           phone?: string | null;
           is_admin?: boolean;
+          username?: string | null;
+          must_change_password?: boolean;
           created_at?: string;
         };
         Update: {
@@ -43,6 +47,8 @@ export interface Database {
           goals?: string | null;
           phone?: string | null;
           is_admin?: boolean;
+          username?: string | null;
+          must_change_password?: boolean;
           created_at?: string;
         };
         Relationships: [];

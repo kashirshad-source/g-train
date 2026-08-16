@@ -3,31 +3,25 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { InviteTrainerButton } from "./invite-trainer-button";
-import { format } from "date-fns";
 
 export default async function AdminPage() {
   await requireAdmin();
   const admin = createAdminClient();
 
-  const [{ data: profiles }, { data: locations }, { data: members }, { count: bookingCount }, { data: invites }] =
+  const [{ data: profiles }, { data: locations }, { data: members }, { count: bookingCount }] =
     await Promise.all([
       admin
         .from("profiles")
-        .select("id, full_name, email, phone, default_role, avatar_url, created_at")
+        .select("id, full_name, email, phone, username, default_role, avatar_url, created_at")
         .order("created_at", { ascending: false }),
       admin.from("locations").select("id, name, address, is_base, created_at").order("name"),
       admin.from("location_members").select("location_id, user_id, role, status"),
       admin.from("bookings").select("id", { count: "exact", head: true }),
-      admin
-        .from("admin_trainer_invites")
-        .select("id, code, name, phone, status, created_at, accepted_by")
-        .order("created_at", { ascending: false }),
     ]);
 
   const allProfiles = profiles ?? [];
   const allLocations = locations ?? [];
   const allMembers = members ?? [];
-  const profileById = new Map(allProfiles.map((p) => [p.id, p]));
 
   const trainers = allProfiles.filter((p) => p.default_role === "trainer");
   const clients = allProfiles.filter((p) => p.default_role === "client");
@@ -76,9 +70,10 @@ export default async function AdminPage() {
               {trainers.map((t) => (
                 <li key={t.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                   <div>
-                    <div className="text-sm font-medium">{t.full_name ?? t.email}</div>
+                    <div className="text-sm font-medium">{t.full_name ?? t.username ?? t.email}</div>
                     <div className="text-xs text-muted-foreground">
-                      {t.email} {t.phone ? `· ${t.phone}` : ""}
+                      {t.username ? `Username: ${t.username}` : t.email}
+                      {t.phone ? ` · ${t.phone}` : ""}
                     </div>
                   </div>
                   <Badge variant="secondary">
@@ -142,40 +137,6 @@ export default async function AdminPage() {
                   <div className="text-xs text-muted-foreground">
                     {c.email} {c.phone ? `· ${c.phone}` : ""}
                   </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Trainer activation codes</CardTitle>
-          <CardDescription>Codes you&apos;ve generated and whether they&apos;ve been redeemed.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {!invites || invites.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No invites sent yet.</p>
-          ) : (
-            <ul className="flex flex-col divide-y">
-              {invites.map((inv) => (
-                <li key={inv.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                  <div>
-                    <div className="text-sm font-medium">
-                      {inv.name ?? "Unnamed"}{" "}
-                      <span className="font-mono font-normal tabular-nums text-muted-foreground">
-                        {inv.code}
-                      </span>
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {inv.phone} · {format(new Date(inv.created_at), "MMM d, yyyy")}
-                      {inv.accepted_by && ` · redeemed by ${profileById.get(inv.accepted_by)?.full_name ?? profileById.get(inv.accepted_by)?.email ?? "someone"}`}
-                    </div>
-                  </div>
-                  <Badge variant={inv.status === "accepted" ? "secondary" : "outline"}>
-                    {inv.status}
-                  </Badge>
                 </li>
               ))}
             </ul>
