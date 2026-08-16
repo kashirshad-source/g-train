@@ -27,17 +27,22 @@ export function InviteMemberButton({
   role: "trainer" | "client";
 }) {
   const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [sending, setSending] = useState(false);
 
   async function handleInvite() {
+    if (!name.trim()) {
+      toast.error("Enter their name");
+      return;
+    }
     if (!phone.trim()) {
       toast.error("Enter their phone number");
       return;
     }
     setSending(true);
     const invite = role === "trainer" ? createTrainerInvite : createClientInvite;
-    const result = await invite(locationId, phone);
+    const result = await invite(locationId, name, phone);
     setSending(false);
     if (result.error || !result.id) {
       toast.error(result.error ?? "Couldn't create the invite. Try again.");
@@ -46,11 +51,13 @@ export function InviteMemberButton({
 
     const digits = phone.replace(/\D/g, "");
     const link = `${window.location.origin}/invite/l/${result.id}`;
-    const message = `You're invited to train at ${locationName} on G-Train! Tap to join: ${link}`;
+    const firstName = name.trim().split(" ")[0];
+    const message = `Hi ${firstName}, you're invited to train at ${locationName} on G-Train! Tap to join: ${link}`;
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
     window.location.href = `sms:${digits}${isIOS ? "&" : "?"}body=${encodeURIComponent(message)}`;
 
     setOpen(false);
+    setName("");
     setPhone("");
   }
 
@@ -70,6 +77,16 @@ export function InviteMemberButton({
           <DialogDescription>Opens a text with a join link.</DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-1.5">
+          <Label htmlFor={`invite-name-${role}`}>Their name</Label>
+          <Input
+            id={`invite-name-${role}`}
+            placeholder="Jane Smith"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
           <Label htmlFor={`invite-phone-${role}`}>Their phone number</Label>
           <Input
             id={`invite-phone-${role}`}
@@ -77,7 +94,6 @@ export function InviteMemberButton({
             placeholder="(555) 123-4567"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            autoFocus
           />
         </div>
         <DialogFooter>

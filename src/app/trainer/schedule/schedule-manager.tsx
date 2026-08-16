@@ -293,8 +293,7 @@ export function ScheduleManager({
       <Tabs defaultValue="availability">
         <TabsList>
           <TabsTrigger value="availability">Availability</TabsTrigger>
-          <TabsTrigger value="bookings">Upcoming bookings</TabsTrigger>
-          <TabsTrigger value="offers">Open slots</TabsTrigger>
+          <TabsTrigger value="bookings">Bookings</TabsTrigger>
           <TabsTrigger value="blocks">Recurring commitments</TabsTrigger>
         </TabsList>
 
@@ -496,20 +495,16 @@ export function ScheduleManager({
               )}
             </CardContent>
           </Card>
-        </TabsContent>
 
-        <TabsContent value="offers">
-          <Card>
-            <CardHeader>
-              <CardTitle>Open slots</CardTitle>
-              <CardDescription>
-                Slots you&apos;ve offered to clients after a cancellation.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {slotOffers.length === 0 ? (
-                <p className="text-sm text-muted-foreground">None yet.</p>
-              ) : (
+          {slotOffers.length > 0 && (
+            <Card className="mt-6">
+              <CardHeader>
+                <CardTitle>Open slots</CardTitle>
+                <CardDescription>
+                  Slots you&apos;ve offered to clients after a cancellation.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
                 <ul className="flex flex-col divide-y">
                   {slotOffers.map((offer) => {
                     const location = locationById.get(offer.location_id);
@@ -574,9 +569,9 @@ export function ScheduleManager({
                     );
                   })}
                 </ul>
-              )}
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="blocks">

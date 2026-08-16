@@ -19,7 +19,7 @@ export default async function LocationInvitePage({
   const admin = createAdminClient();
   const { data: invite } = await admin
     .from("location_invites")
-    .select("phone, role, status, locations(name)")
+    .select("name, phone, role, status, locations(name)")
     .eq("id", id)
     .maybeSingle();
 
@@ -40,6 +40,7 @@ export default async function LocationInvitePage({
     <div className="flex min-h-screen items-center justify-center px-6 py-16">
       <AcceptInviteWrapper
         inviteId={id}
+        name={invite.name}
         phone={invite.phone}
         role={invite.role as "trainer" | "client"}
         locationName={locationName ?? "your trainer's location"}

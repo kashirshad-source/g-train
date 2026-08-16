@@ -280,6 +280,7 @@ export interface Database {
           id: string;
           trainer_id: string;
           location_id: string;
+          name: string | null;
           phone: string;
           role: Role;
           status: "pending" | "accepted";
@@ -291,6 +292,7 @@ export interface Database {
           id?: string;
           trainer_id: string;
           location_id: string;
+          name?: string | null;
           phone: string;
           role?: Role;
           status?: "pending" | "accepted";
@@ -302,6 +304,7 @@ export interface Database {
           id?: string;
           trainer_id?: string;
           location_id?: string;
+          name?: string | null;
           phone?: string;
           role?: Role;
           status?: "pending" | "accepted";

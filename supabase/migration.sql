@@ -144,6 +144,7 @@ create table if not exists public.location_invites (
   id uuid primary key default gen_random_uuid(),
   trainer_id uuid not null references public.profiles (id) on delete cascade,
   location_id uuid not null references public.locations (id) on delete cascade,
+  name text,
   phone text not null,
   role text not null default 'client' check (role in ('trainer', 'client')),
   status text not null default 'pending' check (status in ('pending', 'accepted')),
@@ -151,6 +152,9 @@ create table if not exists public.location_invites (
   accepted_at timestamptz,
   created_at timestamptz not null default now()
 );
+
+-- Existing databases: this table predates the name column.
+alter table public.location_invites add column if not exists name text;
 
 create table if not exists public.conversations (
   id uuid primary key default gen_random_uuid(),
@@ -793,12 +797,18 @@ create policy "bookings_update" on public.bookings
   with check (trainer_id = auth.uid() or client_id = auth.uid());
 
 -- client_rosters: the trainer and the client on that row can see it; rows
--- are only ever written by the client (accepting an invite, or booking)
+-- are only ever written by the client (accepting an invite, or booking).
+-- The trainer can remove someone from their own roster (this table, not
+-- location_members, is the source of truth for "my clients" — see the
+-- table comment above).
 create policy "client_rosters_select" on public.client_rosters
   for select using (trainer_id = auth.uid() or client_id = auth.uid());
 
 create policy "client_rosters_insert" on public.client_rosters
   for insert with check (client_id = auth.uid());
+
+create policy "client_rosters_delete" on public.client_rosters
+  for delete using (trainer_id = auth.uid());
 
 -- notifications: only ever readable/updatable (marking read) by their
 -- recipient; writes only happen through the notify_* functions above

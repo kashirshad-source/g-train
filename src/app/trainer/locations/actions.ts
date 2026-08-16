@@ -44,8 +44,25 @@ export async function removeMember(locationId: string, userId: string) {
   revalidatePath("/trainer/locations");
 }
 
+export async function removeRosterClient(locationId: string, clientId: string) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+
+  await supabase
+    .from("client_rosters")
+    .delete()
+    .eq("location_id", locationId)
+    .eq("client_id", clientId)
+    .eq("trainer_id", user.id);
+  revalidatePath("/trainer/locations");
+}
+
 async function createLocationInvite(
   locationId: string,
+  name: string,
   phone: string,
   role: "trainer" | "client"
 ): Promise<{ id?: string; error?: string }> {
@@ -60,7 +77,13 @@ async function createLocationInvite(
 
   const { data, error } = await supabase
     .from("location_invites")
-    .insert({ trainer_id: user.id, location_id: locationId, phone: normalized, role })
+    .insert({
+      trainer_id: user.id,
+      location_id: locationId,
+      name: name.trim() || null,
+      phone: normalized,
+      role,
+    })
     .select("id")
     .single();
 
@@ -70,12 +93,12 @@ async function createLocationInvite(
   return { id: data.id };
 }
 
-export async function createClientInvite(locationId: string, phone: string) {
-  return createLocationInvite(locationId, phone, "client");
+export async function createClientInvite(locationId: string, name: string, phone: string) {
+  return createLocationInvite(locationId, name, phone, "client");
 }
 
-export async function createTrainerInvite(locationId: string, phone: string) {
-  return createLocationInvite(locationId, phone, "trainer");
+export async function createTrainerInvite(locationId: string, name: string, phone: string) {
+  return createLocationInvite(locationId, name, phone, "trainer");
 }
 
 export async function deleteLocation(locationId: string) {

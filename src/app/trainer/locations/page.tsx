@@ -6,7 +6,7 @@ import { ProfileAvatar } from "@/components/profile-avatar";
 import { DeleteLocationButton } from "./delete-location-button";
 import { InviteMemberButton } from "./invite-member-button";
 import { CreateLocationForm } from "./create-location-form";
-import { removeMember } from "./actions";
+import { removeMember, removeRosterClient } from "./actions";
 
 export default async function TrainerLocationsPage() {
   const { supabase, user } = await requireUserWithRole("trainer");
@@ -55,7 +55,12 @@ export default async function TrainerLocationsPage() {
           <CardContent className="flex flex-col gap-6">
             <div>
               <h3 className="mb-2 text-sm font-medium text-muted-foreground">Trainers</h3>
-              <MemberList members={trainers} locationId={location.id} currentUserId={user.id} />
+              <MemberList
+                members={trainers}
+                locationId={location.id}
+                currentUserId={user.id}
+                removeAction={removeMember}
+              />
             </div>
             <div>
               <div className="mb-2 flex items-center justify-between gap-3">
@@ -66,7 +71,12 @@ export default async function TrainerLocationsPage() {
                   role="client"
                 />
               </div>
-              <MemberList members={clients} locationId={location.id} currentUserId={user.id} />
+              <MemberList
+                members={clients}
+                locationId={location.id}
+                currentUserId={user.id}
+                removeAction={removeRosterClient}
+              />
             </div>
           </CardContent>
         </Card>
@@ -79,10 +89,12 @@ function MemberList({
   members,
   locationId,
   currentUserId,
+  removeAction,
 }: {
   members: { id: string; full_name: string | null; email: string | null; avatar_url: string | null }[];
   locationId: string;
   currentUserId: string;
+  removeAction: (locationId: string, memberId: string) => Promise<void>;
 }) {
   if (members.length === 0) {
     return <p className="text-sm text-muted-foreground">None yet.</p>;
@@ -104,7 +116,7 @@ function MemberList({
             </div>
           </div>
           {member.id !== currentUserId && (
-            <form action={removeMember.bind(null, locationId, member.id)}>
+            <form action={removeAction.bind(null, locationId, member.id)}>
               <Button type="submit" variant="ghost" size="sm">
                 Remove
               </Button>
