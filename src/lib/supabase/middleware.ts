@@ -5,6 +5,17 @@ import type { Database } from "@/lib/supabase/types";
 const PUBLIC_PATHS = ["/", "/auth/callback", "/auth/auth-code-error"];
 
 export async function updateSession(request: NextRequest) {
+  const path = request.nextUrl.pathname;
+  const isPublic = PUBLIC_PATHS.includes(path) || path.startsWith("/invite/");
+
+  // Public routes never branch on auth state below, so skip the Supabase
+  // round trip entirely instead of paying for a getUser() call whose result
+  // would just be discarded — this is the landing page and every invite
+  // link, so it matters most for first-time, logged-out visitors.
+  if (isPublic) {
+    return NextResponse.next({ request });
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient<Database>(
@@ -32,16 +43,13 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const path = request.nextUrl.pathname;
-  const isPublic = PUBLIC_PATHS.includes(path) || path.startsWith("/invite/");
-
-  if (!user && !isPublic) {
+  if (!user) {
     const url = request.nextUrl.clone();
     url.pathname = "/";
     return NextResponse.redirect(url);
   }
 
-  if (user && !isPublic && path !== "/onboarding" && path !== "/change-password") {
+  if (path !== "/onboarding" && path !== "/change-password") {
     const { data: profile } = await supabase
       .from("profiles")
       .select("default_role, must_change_password")

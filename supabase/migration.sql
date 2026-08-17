@@ -244,11 +244,20 @@ create index if not exists idx_recurring_blocks_trainer_location on public.recur
 create index if not exists idx_bookings_trainer on public.bookings (trainer_id);
 create index if not exists idx_bookings_client on public.bookings (client_id);
 create index if not exists idx_bookings_location on public.bookings (location_id);
+-- Covers "today"/"tomorrow" dashboard queries (trainer_id + a start_time
+-- range); the single-column idx_bookings_trainer above can't serve the
+-- range filter, so this saves a full scan of that trainer's other bookings.
+create index if not exists idx_bookings_trainer_start on public.bookings (trainer_id, start_time);
 create index if not exists idx_messages_conversation on public.messages (conversation_id, created_at);
 create index if not exists idx_conversation_participants_user on public.conversation_participants (user_id);
 create index if not exists idx_notifications_user on public.notifications (user_id, created_at);
 create index if not exists idx_slot_offers_location on public.slot_offers (location_id, status);
 create index if not exists idx_slot_offer_requests_offer on public.slot_offer_requests (slot_offer_id);
+-- client_rosters' primary key is (trainer_id, client_id, location_id), so
+-- it can't efficiently serve lookups by trainer_id + location_id alone
+-- (getRosteredClients, called on every dashboard/locations page load) —
+-- location_id is the 3rd column and client_id isn't filtered.
+create index if not exists idx_client_rosters_trainer_location on public.client_rosters (trainer_id, location_id);
 
 -- ============================================================
 -- New-user bootstrap: create a profile row right after Google sign-in
